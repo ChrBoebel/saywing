@@ -5,7 +5,7 @@
   "license": "mit",
   "upstream": "https://github.com/Audio-WestlakeU/FS-EEND",
   "upstream_license": "mit",
-  "dataset_note": "Fine-tuned on AMI, CALLHOME, DIHARD II or DIHARD III; those datasets keep their own terms (release gate, ADR 0008).",
+  "dataset_note": "Every variant was pretrained on simulated mixtures from Switchboard-2 (Phases I-III), Switchboard Cellular (Parts 1-2) and NIST SRE 2004-2008 (Linguistic Data Consortium), with MUSAN noise and simulated room impulse responses, then fine-tuned on AMI, CALLHOME, DIHARD II or DIHARD III. No variant is free of LDC data. Datasets keep their own terms; the upstream authors have not confirmed that MIT covers the checkpoints. Whether any build carries this model is a maintainer decision (ADR 0008).",
   "step": "100ms",
   "bundled_variant": "dih3",
   "variants": {

@@ -12,9 +12,10 @@ protocol MeetingVoiceDiarizing: AnyObject, Sendable {
 /// Feeds the "Others" track into a diarizer on its own queue and places its
 /// results on the meeting timeline. Audio waits here only briefly: when the
 /// diarizer falls behind by more than `backlogLimit`, new audio is dropped rather
-/// than piling up in memory, and the voices resume after the gap.
+/// than piling up in memory, and the voices resume after the gap. The diarizer, and
+/// with it the model and everything it holds about the voices, is released as soon
+/// as the tracker finishes, is cancelled or fails.
 final class MeetingVoiceTracker: @unchecked Sendable {
-  private let diarizer: any MeetingVoiceDiarizing
   private let onVoices: @Sendable ([MeetingVoiceSpan]) -> Void
   private let onFailure: @Sendable (String) -> Void
   private let queue = DispatchQueue(label: "Saywing.meeting.voices", qos: .utility)
@@ -23,6 +24,7 @@ final class MeetingVoiceTracker: @unchecked Sendable {
   private var active = true
   private var backlog: TimeInterval = 0
   // Queue-only state.
+  private var diarizer: (any MeetingVoiceDiarizing)?
   private var fed: TimeInterval = 0
   /// (diarizer time, meeting time) where the two clocks were last aligned.
   private var anchors: [(fed: TimeInterval, time: TimeInterval)] = []
@@ -51,7 +53,7 @@ final class MeetingVoiceTracker: @unchecked Sendable {
     guard accepted else { return }
     queue.async { [self] in
       defer { lock.withLock { backlog -= duration } }
-      guard lock.withLock({ active }) else { return }
+      guard lock.withLock({ active }), let diarizer else { return }
       // A jump on the meeting timeline (a device change, dropped audio) starts a
       // new alignment; small jitter does not.
       let expected = anchors.last.map { $0.time + (fed - $0.fed) }
@@ -70,7 +72,8 @@ final class MeetingVoiceTracker: @unchecked Sendable {
   /// Blocks the caller; run it off the main thread.
   func finish() {
     queue.sync {
-      guard lock.withLock({ active }) else { return }
+      defer { diarizer = nil }
+      guard lock.withLock({ active }), let diarizer else { return }
       do {
         deliver(try diarizer.finish())
       } catch {
@@ -83,6 +86,7 @@ final class MeetingVoiceTracker: @unchecked Sendable {
   /// Drops everything queued; nothing is delivered afterwards.
   func cancel() {
     lock.withLock { active = false }
+    queue.async { [self] in diarizer = nil }
   }
 
   /// For tests: waits until queued audio has been processed.
@@ -104,6 +108,7 @@ final class MeetingVoiceTracker: @unchecked Sendable {
       defer { active = false }
       return active
     }
+    diarizer = nil
     if wasActive { onFailure(error.localizedDescription) }
   }
 }

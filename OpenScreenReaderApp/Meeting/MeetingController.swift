@@ -83,7 +83,7 @@ final class MeetingController: ObservableObject {
     makeSystemAudio: @escaping @MainActor () -> (any MeetingAudioSource)? = {
       if #available(macOS 14.2, *) { SystemAudioTapSource() } else { nil }
     },
-    makeVoiceDiarizer: @escaping @Sendable () async -> (any MeetingVoiceDiarizing)? = { nil },
+    makeVoiceDiarizer: @escaping @Sendable () async -> (any MeetingVoiceDiarizing)? = { MeetingVoiceModel.makeDiarizer() },
     language: @escaping @MainActor () -> DictationLanguage = {
       DictationLanguage(rawValue: UserDefaults.standard.integer(forKey: "dictationLanguage.v1")) ?? .automatic
     },

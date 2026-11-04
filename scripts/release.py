@@ -32,6 +32,9 @@ DMG_LICENSE_FILES = (('LICENSE', 'LICENSE'), ('NOTICE', 'NOTICE'),
                      ('docs/licenses/DMG-README.txt', 'README.txt'),
                      ('docs/licenses/SUPERTONIC-MODEL-TERMS.md', 'SUPERTONIC-MODEL-TERMS.md'),
                      ('docs/licenses/Supertonic-3-Open-RAIL-M.txt', 'Supertonic-3-Open-RAIL-M.txt'))
+# Upstream notices of code linked into every build, whether or not it carries a voice model.
+LINKED_CODE_NOTICES = (('docs/licenses/Sparkle-2.10.0.txt', 'LICENSE-Sparkle'),
+                       ('docs/licenses/FluidAudio-0.18.2.txt', 'LICENSE-FluidAudio'))
 
 
 def run(*args, **kwargs):
@@ -218,6 +221,11 @@ def sign_bundle(app, identity):
     run('python3', REPO / 'scripts/verify-app-permissions.py', app)
 
 
+def copy_linked_code_notices(resources, repo=None):
+    for relative, name in LINKED_CODE_NOTICES:
+        shutil.copy2((repo or REPO) / relative, resources / name)
+
+
 def dmg_license_files(repo=None):
     """Return [(source, DMG name)]; fail before any build if a license document is missing."""
     repo = repo or REPO
@@ -335,8 +343,8 @@ def main():
     from portable_runtime import audit as audit_native
     native = audit_native(app, args.architecture, '14.0')
     (output / 'native-audit.json').write_text(json.dumps(native, indent=2) + '\n')
-    # Full upstream notice chain accompanies every distribution, including Sparkle.
-    shutil.copy2(REPO / 'docs/licenses/Sparkle-2.10.0.txt', app / 'Contents/Resources/LICENSE-Sparkle')
+    # Full upstream notice chain accompanies every distribution, including Sparkle and FluidAudio.
+    copy_linked_code_notices(app / 'Contents/Resources')
     from bundle_notices import bundle_notices
     bundle_notices(app / 'Contents/Resources')
     if args.public_release:

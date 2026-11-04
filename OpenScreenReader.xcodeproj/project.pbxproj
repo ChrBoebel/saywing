@@ -19,9 +19,12 @@
 		DD2000000000000000000002 /* MeetingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000002 /* MeetingTests.swift */; };
 		DD2000000000000000000009 /* MeetingExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000009 /* MeetingExport.swift */; };
 		DD2000000000000000000012 /* MeetingVoices.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000012 /* MeetingVoices.swift */; };
+		DD2000000000000000000013 /* MeetingVoiceDiarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000013 /* MeetingVoiceDiarizer.swift */; };
+		DD2000000000000000000014 /* MeetingVoiceDiarizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000014 /* MeetingVoiceDiarizerTests.swift */; };
 		DD2000000000000000000001 /* MeetingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000001 /* MeetingCore.swift */; };
         CC2000000000000000000001 = {isa = PBXBuildFile; fileRef = CC1000000000000000000001; };
         CC2000000000000000000002 = {isa = PBXBuildFile; productRef = CC3000000000000000000001; };
+        CC2000000000000000000004 = {isa = PBXBuildFile; productRef = CC3000000000000000000002; };
 		F00000000000000000000003 /* InterfaceSoundPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000004; };
 		F00000000000000000000001 /* ReadingPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000002; };
 		E00000000000000000000001 = {isa = PBXBuildFile; fileRef = E00000000000000000000002; };
@@ -93,6 +96,8 @@
 		DD1000000000000000000002 /* MeetingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTests.swift; sourceTree = "<group>"; };
 		DD1000000000000000000009 /* MeetingExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting/MeetingExport.swift; sourceTree = "<group>"; };
 		DD1000000000000000000012 /* MeetingVoices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting/MeetingVoices.swift; sourceTree = "<group>"; };
+		DD1000000000000000000013 /* MeetingVoiceDiarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting/MeetingVoiceDiarizer.swift; sourceTree = "<group>"; };
+		DD1000000000000000000014 /* MeetingVoiceDiarizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingVoiceDiarizerTests.swift; sourceTree = "<group>"; };
 		DD1000000000000000000001 /* MeetingCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting/MeetingCore.swift; sourceTree = "<group>"; };
         CC1000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateController.swift; sourceTree = "<group>"; };
 		F00000000000000000000004 /* InterfaceSoundPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceSoundPlayer.swift; sourceTree = "<group>"; };
@@ -146,6 +151,7 @@
 			files = (
 				A00000000000000000000082 /* OpenScreenReaderCore in Frameworks */,
                 CC2000000000000000000002 /* Sparkle in Frameworks */,
+                CC2000000000000000000004 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -208,6 +214,7 @@
 				DD1000000000000000000003 /* EchoGate.swift */,
 				DD1000000000000000000009 /* MeetingExport.swift */,
 				DD1000000000000000000012 /* MeetingVoices.swift */,
+				DD1000000000000000000013 /* MeetingVoiceDiarizer.swift */,
 				DD1000000000000000000001 /* MeetingCore.swift */,
 				BB1000000000000000000003 /* Localizable.xcstrings */,
 				BB1000000000000000000002 /* ShortcutRecorder.swift */,
@@ -249,6 +256,7 @@
 				DD1000000000000000000010 /* MeetingExportTests.swift */,
 				DE30000000000000000000F1 /* SpeechWorkerFailureTests.swift */,
 				DD1000000000000000000011 /* MeetingVoiceTests.swift */,
+				DD1000000000000000000014 /* MeetingVoiceDiarizerTests.swift */,
 				DD1000000000000000000002 /* MeetingTests.swift */,
 				D00000000000000000000002 /* OCRTests.swift */,
 				A00000000000000000000018 /* InteractionTests.swift */,
@@ -289,6 +297,7 @@
 			packageProductDependencies = (
 				A00000000000000000000081 /* OpenScreenReaderCore */,
                 CC3000000000000000000001 /* Sparkle */,
+                CC3000000000000000000002 /* FluidAudio */,
 			);
 			productName = OpenScreenReader;
 			productReference = A00000000000000000000006 /* Saywing.app */;
@@ -365,6 +374,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
                 CC4000000000000000000001 /* Sparkle */,
+                CC4000000000000000000002 /* FluidAudio */,
 				A00000000000000000000080 /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -425,6 +435,7 @@
 				DD2000000000000000000003 /* EchoGate.swift in Sources */,
 				DD2000000000000000000009 /* MeetingExport.swift in Sources */,
 				DD2000000000000000000012 /* MeetingVoices.swift in Sources */,
+				DD2000000000000000000013 /* MeetingVoiceDiarizer.swift in Sources */,
 				DD2000000000000000000001 /* MeetingCore.swift in Sources */,
 				BB2000000000000000000001 /* Permissions.swift in Sources */,
 				C52000000000000000000001 /* SetupFlow.swift in Sources */,
@@ -462,6 +473,7 @@
 				DD2000000000000000000010 /* MeetingExportTests.swift in Sources */,
 				DE40000000000000000000F1 /* SpeechWorkerFailureTests.swift in Sources */,
 				DD2000000000000000000011 /* MeetingVoiceTests.swift in Sources */,
+				DD2000000000000000000014 /* MeetingVoiceDiarizerTests.swift in Sources */,
 				DD2000000000000000000002 /* MeetingTests.swift in Sources */,
 				D00000000000000000000001 /* OCRTests.swift in Sources */,
 				A00000000000000000000027 /* InteractionTests.swift in Sources */,
@@ -708,6 +720,12 @@
             repositoryURL = "https://github.com/sparkle-project/Sparkle";
             requirement = { kind = exactVersion; version = 2.10.0; };
         };
+        CC4000000000000000000002 = {
+            isa = XCRemoteSwiftPackageReference;
+            repositoryURL = "https://github.com/FluidInference/FluidAudio";
+            requirement = { kind = exactVersion; version = 0.18.2; };
+            traits = (Diarizer);
+        };
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -715,6 +733,11 @@
             isa = XCSwiftPackageProductDependency;
             package = CC4000000000000000000001;
             productName = Sparkle;
+        };
+        CC3000000000000000000002 = {
+            isa = XCSwiftPackageProductDependency;
+            package = CC4000000000000000000002;
+            productName = FluidAudio;
         };
 		A00000000000000000000081 /* OpenScreenReaderCore */ = {
 			isa = XCSwiftPackageProductDependency;

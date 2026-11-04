@@ -17,7 +17,7 @@
 - Blind listening comparison with Apple's voices, voice selection, and memory/latency/energy measurement on an M4 with 16 GB RAM.
 - Live VoiceOver/keyboard walkthrough ([#46](https://github.com/ChrBoebel/saywing/issues/46)) and a full real UI regression.
 - A guide to verify offline behavior yourself ([#48](https://github.com/ChrBoebel/saywing/issues/48)).
-- Telling the others' voices apart in meeting transcripts: the interface and tracking exist, the runtime adapter and the model do not ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)).
+- Telling the others' voices apart in meeting transcripts: the interface, tracking and runtime adapter exist, but the model ships in no build until the maintainer decides on its training-data question ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)).
 - Physical macOS 14/15 and Intel reports ([#47](https://github.com/ChrBoebel/saywing/issues/47), [#31](https://github.com/ChrBoebel/saywing/issues/31)).
 - Name comprehension and trademark review; demo GIF/video and screenshots.
 
@@ -40,7 +40,8 @@
 - [x] Local meeting transcript (2026-10-15, [ADR 0006](decisions/0006-local-meeting-transcript.md)): system audio tap + microphone, on-device `SpeechTranscriber`, echo gate, consent step, RAM-only transcript with explicit copy/save.
 - [ ] Meeting transcript gates: real call over speakers and headphones on the signed build, permission prompt, echo duplicates, word errors on real speech, 60-minute CPU/memory, no files written.
 - [x] Meeting speakers and PDF export (project decision 2026-10-18, [ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)): voices of the others told apart and nameable, tagged PDF/Markdown/text export.
-- [ ] Meeting speakers runtime: FluidAudio `LSEENDDiarizer` adapter after the build decision; variant chosen on recorded calls; gates of ADR 0008.
+- [x] Meeting speakers adapter: FluidAudio 0.18.2 with only its `Diarizer` trait, tested with the real model on read speech.
+- [ ] Meeting speakers model: maintainer decision on the LS-EEND training data and license (ask LDC and the authors), variant chosen on recorded calls, gates of ADR 0008. The release flag `SAYWING_BUNDLE_DIARIZATION_MODEL` stays off until then.
 - [ ] Meeting transcript candidates, each needing its own decision: Whisper refinement with the vocabulary, summaries, meeting detection, mixed-language meetings, macOS 14–15 support.
 
 ## Current delivery — 2026-09-09
