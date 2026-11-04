@@ -33,11 +33,11 @@ Saywing is an open-source menu bar app for macOS. Press a shortcut, drag over an
 
 ## Install
 
-Download the signed and notarized **beta** for your Mac (macOS 14 or later):
+Download the signed and notarized **beta** for your Mac (macOS 14 or later, about 1 GB, because the voice and dictation models are included):
 
 - **[Apple Silicon](https://www.christopherboebel.com/downloads/saywing/latest.dmg)** · **[Intel](https://www.christopherboebel.com/downloads/saywing/x86_64/latest.dmg)** · [download page with checksums](https://www.christopherboebel.com/en/saywing)
 
-Open the DMG and drag Saywing to Applications. On first use, setup explains each permission before asking for it and asks you to accept the Supertonic 3 model terms before the reading voice is used. Saywing updates itself through Sparkle; you can turn automatic checks off in Settings.
+Open the DMG and drag Saywing to Applications. Reading aloud needs two macOS permissions (Screen Recording and Input Monitoring) and usually one restart of the app. On first use, setup explains each permission before asking for it and asks you to accept the Supertonic 3 model terms before the reading voice is used. Saywing updates itself through Sparkle; you can turn automatic checks off in Settings.
 
 Or install from the [Homebrew tap](https://github.com/ChrBoebel/homebrew-tap):
 
@@ -55,7 +55,7 @@ Saywing is young software with known gaps:
 - The development target is Apple Silicon. Intel (x86_64) builds exist, but they have only been tested under Rosetta, not on physical Intel hardware.
 - macOS 14 is the minimum deployment target. Physical testing on macOS 14 and 15 is still incomplete; most testing happened on macOS 26.
 - A fresh-Mac permission walkthrough, a full matrix of target apps for dictation, and a live VoiceOver/keyboard review are still open.
-- A real MLX transcription with the rebuilt dictation runtime has not been run yet (see [runtime build](docs/runtime-build.md#verification-2026-10-23)).
+- The shipped dictation runtime transcribed German and English test audio correctly on an M4 Mac (see [runtime build](docs/runtime-build.md)). Real microphone use across target apps, Intel and the optional models have not been verified this way.
 
 See the [roadmap](docs/roadmap.md) for open gates and [CHANGELOG.md](CHANGELOG.md) for notable changes.
 
@@ -108,7 +108,7 @@ Saywing handles potentially sensitive screen content and speech, so privacy is t
   2. **Model downloads you confirm.** Optional dictation models are fetched from pinned Hugging Face revisions, and every file is SHA-256-verified against a manifest bundled with the app before use.
 
   There is no other runtime network access. The speech and dictation workers run under a macOS sandbox profile that denies network access and file writes.
-- **Permissions.** Each permission is requested only when you start the feature that needs it:
+- **Permissions.** Setup explains each permission before requesting it, and nothing is requested before you start setup or the feature that needs it:
   - Screen Recording (reading)
   - Input Monitoring (Escape while another app is active)
   - Microphone and Accessibility (dictation and paste)
@@ -122,7 +122,11 @@ Saywing handles potentially sensitive screen content and speech, so privacy is t
 ## FAQ
 
 **How is this different from macOS Speak Selection?**
-Speak Selection is built into macOS and reads text you can select, using the system voices. Saywing reads text you can see: it captures the region you drag, recognizes the text locally with Apple Vision, and speaks it with the Supertonic 3 neural voice. That also covers text you cannot select, such as text in images, scanned PDFs or video frames. Saywing recognizes English and German only. If your text is selectable and a system voice suits you, Speak Selection needs no extra app.
+Speak Selection is built into macOS and reads with a system voice of your choice, in many languages. Once it is turned on in System Settings, its shortcut (Option-Esc by default) speaks the text you have selected or, with nothing selected, the available text in the current window. That can include text in images: where Live Text works, such as in Photos, Preview or Safari, you select the recognized text with the pointer and press the shortcut. On macOS 26 and later, Accessibility Reader also opens an app's text in a customizable full-screen view and can read it aloud.
+
+Saywing starts from the screen rather than from an app's text. You press one shortcut and drag over a region in any app; Saywing captures that region, recognizes the text locally with Apple Vision and speaks it with one fixed local neural voice, Supertonic 3. Nothing has to be selectable, so it also works where an app offers neither text selection nor Live Text, which can be the case in remote desktop windows, canvas-based apps or some video players, as long as the region appears in a screen capture. Pressing the shortcut again during speech queues another region, up to five texts. Saywing recognizes English and German only and needs Screen Recording permission.
+
+Speak Selection is the better choice if you can select the text, if you need another language or want to choose a voice, or if you would rather not install an app.
 
 **Is Saywing a screen reader?**
 No. Despite the project's former name, Saywing does not navigate interfaces, announce controls or provide non-visual operation of macOS. Use VoiceOver for that.

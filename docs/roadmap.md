@@ -2,31 +2,31 @@
 
 ## At a glance
 
-**Now — integrated in development builds**
+**Now — public beta**
 
+- Saywing 0.1.30 (2026-10-27) is a signed and notarized beta for Apple Silicon and Intel, on the [download page](https://www.christopherboebel.com/en/saywing), [GitHub Releases](https://github.com/ChrBoebel/saywing/releases) and through a [Homebrew tap](https://github.com/ChrBoebel/homebrew-tap).
 - Hotkey → region selection → local Apple Vision OCR → automatic local speech with Supertonic 3; `Esc` and Stop cancel the whole pipeline.
 - Live speed (0.75–2×), a bounded queue fed by repeating the shortcut, pause/resume and on-demand capsule controls.
 - Guided first-use setup with a real reading test.
 - Local dictation: Whisper Turbo by default with an optional vocabulary; Qwen3-ASR selectable.
 - Local meeting transcript with a consent step, a RAM-only transcript and PDF, Markdown or plain-text export.
 
-**Next — open gates before a first public release**
+**Next — before a non-beta release**
 
-- Third-party notices and model license review.
-- Signed and notarized Apple Silicon build, plus packaged worker and bundled-model signing/notarization.
-- Fresh-Mac (clean-Mac) packaging and distribution testing, including the dictation target-app matrix and meeting transcript gates.
-- Offline and temporary-file privacy verification, and a manual data-flow review.
-- Live VoiceOver/keyboard accessibility walkthrough and full real UI regression.
-- German/English listening review, voice selection, and memory/latency/energy validation on an M4 with 16 GB RAM.
+- Fresh-Mac (clean-Mac) walkthrough, including the dictation target-app matrix; this is the `clean_mac` gate that keeps releases in beta.
+- Blind listening comparison with Apple's voices, voice selection, and memory/latency/energy measurement on an M4 with 16 GB RAM.
+- Live VoiceOver/keyboard walkthrough ([#46](https://github.com/ChrBoebel/saywing/issues/46)) and a full real UI regression.
+- A guide to verify offline behavior yourself ([#48](https://github.com/ChrBoebel/saywing/issues/48)).
+- Telling the others' voices apart in meeting transcripts: the interface and tracking exist, the runtime adapter and the model do not ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)).
+- Physical macOS 14/15 and Intel reports ([#47](https://github.com/ChrBoebel/saywing/issues/47), [#31](https://github.com/ChrBoebel/saywing/issues/31)).
 - Name comprehension and trademark review; demo GIF/video and screenshots.
 
 **Later — candidates, each needing its own decision**
 
 - Repeated capture of the previous region, automatic language switching, sentence or word highlighting and custom pronunciation rules.
 - Additional local providers (if justified by listening tests) and an optional plugin interface for them.
-- Telling the others' voices apart in meeting transcripts, once the diarizer runtime is decided ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)).
 - Meeting transcript extensions such as Whisper refinement, summaries and macOS 14–15 support.
-- Homebrew Cask.
+- An official homebrew/cask entry, once the project meets Homebrew's notability rules.
 
 ## Brand and product direction — 2026-10-14
 
@@ -74,7 +74,7 @@
 - [x] Development-only native Qwen MLX worker with streamed first chunk ([pinned runtime and real checks](research/swift-runtime-evaluation.md)); warm performance and release packaging remain open.
 - [x] Select Supertonic 3 as default after a listening comparison and implement a local ONNX development worker; [integration and verification](research/supertonic-integration.md). Qwen remains comparison-only, not a fallback.
 - [x] Cancellation from `Esc` and explicit Stop controls; broader device/layout stress coverage remains open. Historical repeated-shortcut cancellation was superseded by same-shortcut queueing on 2026-09-09.
-- [ ] Packaged worker and bundled-model signing/notarization experiment.
+- [x] Packaged worker and bundled-model signing/notarization: shipped in the signed 0.1.30 beta.
 - [ ] Offline and temporary-file privacy verification.
 
 Each spike needs a small reproducible test or benchmark and a written decision before it becomes production architecture.
@@ -94,15 +94,15 @@ Each spike needs a small reproducible test or benchmark and a written decision b
 - [x] Add automated unit and integration tests; do not equate skipped permission/UI paths with success.
 - [ ] Validate memory, latency, and energy use on an M4 with 16 GB RAM.
 
-## Phase 3 — First public release
+## Phase 3 — First public release (beta shipped 2026-10-27)
 
 - [ ] Accessibility review and VoiceOver labels. Code audit and fixes done on 2026-10-14; a live VoiceOver/keyboard walkthrough remains open.
-- [ ] Privacy verification guide.
-- [ ] Third-party notices and model license review.
-- [ ] Signed and notarized Apple Silicon build.
+- [ ] Privacy verification guide ([#48](https://github.com/ChrBoebel/saywing/issues/48)).
+- [x] Third-party notices and model license review: completed by the maintainer on 2026-10-25, with accepted residual risks in [ADR 0003](decisions/0003-bundled-default-model.md).
+- [x] Signed and notarized builds for Apple Silicon and Intel (0.1.30, 2026-10-27).
 - [ ] Demo GIF/video and screenshots.
 - [x] GitHub issue templates, security policy, code of conduct and contribution guide.
-- [ ] Public release only after a manual data-flow and licensing review.
+- [x] First public beta after the licensing review; `clean_mac` stays open, so releases remain beta.
 
 ## Later candidates
 
@@ -112,4 +112,4 @@ Each spike needs a small reproducible test or benchmark and a written decision b
 - sentence or word highlighting;
 - custom pronunciation rules;
 - optional plugin interface for additional local providers;
-- Homebrew Cask.
+- an official homebrew/cask entry ([the tap](https://github.com/ChrBoebel/homebrew-tap) is live).
