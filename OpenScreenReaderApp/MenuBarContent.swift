@@ -19,7 +19,7 @@ struct MenuBarContent: View {
             Text(errorMessage)
             if model.errorHelp == .acceptModelTerms {
                 Button("Review Model Terms…") { model.showModelTerms() }
-            } else {
+            } else if model.errorHelp != .reinstall {
                 Button("Open Setup…") { model.showSetup() }
             }
         }

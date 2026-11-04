@@ -97,7 +97,8 @@ struct SetupView: View {
                 .accessibilityHidden(true)
         } accessory: {
             VStack(alignment: .leading, spacing: 10) {
-                Label("No account and no internet connection", systemImage: "wifi.slash")
+                Label("No account. Reading and dictation work offline.", systemImage: "wifi.slash")
+                Label("Only update checks and models you install use the internet", systemImage: "arrow.down.circle")
                 Label("Screenshots, text and audio are never saved", systemImage: "externaldrive.badge.xmark")
                 Label("You decide each permission yourself", systemImage: "hand.raised")
             }

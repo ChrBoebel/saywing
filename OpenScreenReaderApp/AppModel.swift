@@ -128,14 +128,17 @@ final class AppModel: ObservableObject {
         if status == .speaking { speechService.prepareNext(queuedTexts.first?.result.speechText) }
     }
 
-    /// What the question mark offers after a failure: the reason and a retry in
-    /// place, or the setup step when a grant is what is missing.
-    enum ErrorHelp: Equatable { case retry, allow(SaywingPermission), acceptModelTerms, shortcut }
+    /// What the question mark offers after a failure: the reason and a retry in place,
+    /// the setup step when a grant is what is missing, or no action when only a
+    /// reinstall can help.
+    enum ErrorHelp: Equatable { case retry, allow(SaywingPermission), acceptModelTerms, shortcut, reinstall }
     var errorHelp: ErrorHelp {
         if let missing = missingReadingPermission() { return .allow(missing) }
         guard hotkeyRegistration == .registered else { return .shortcut }
-        return modelTermsState == .accepted ? .retry : .acceptModelTerms
+        guard modelTermsState == .accepted else { return .acceptModelTerms }
+        return lastFailureNeedsReinstall ? .reinstall : .retry
     }
+    private var lastFailureNeedsReinstall = false
     /// Settings opens on this tab next time, e.g. Shortcuts from a shortcut conflict.
     @Published var requestedSettingsTab: SettingsTab?
     func openSettings(_ tab: SettingsTab) {
@@ -784,8 +787,8 @@ final class AppModel: ObservableObject {
             } catch is CancellationError {
                 self?.enqueue { await $0.cancel(context: context) }
             } catch {
-                let message = (error as? SpeechFailure)?.localizedDescription ?? SpeechFailure.failed.localizedDescription
-                self?.enqueue { await $0.fail(context: context, message: message) }
+                let failure = error as? SpeechFailure ?? .failed
+                self?.enqueue { await $0.fail(context: context, message: failure.localizedDescription, needsReinstall: failure.needsReinstall) }
             }
         }
     }
@@ -820,7 +823,7 @@ final class AppModel: ObservableObject {
             do { try await Task.sleep(for: duration) } catch { return }
             self?.enqueue {
                 guard $0.speechTimeoutGeneration == timerGeneration else { return }
-                await $0.fail(context: context, message: String(localized: "Local speech timed out. Please try a smaller region."))
+                await $0.fail(context: context, message: SpeechFailure.timedOut.localizedDescription)
             }
         }
     }
@@ -885,14 +888,17 @@ final class AppModel: ObservableObject {
         interfaceSounds?.play(lastOCRSummary?.characterCount == 0 ? .attention : .completion)
     }
 
-    private func fail(context: PipelineOperationContext, message: String) async {
+    private func fail(context: PipelineOperationContext, message: String, needsReinstall: Bool = false) async {
         guard context == activeContext else { return }
         speechService.stop()
         _ = await pipelineCoordinator.fail(context)
         activeContext = nil
+        // The list ends with the run (docs/privacy.md), so the message has to say so.
+        let clearedQueue = !queuedTexts.isEmpty
         stopResources()
         status = .error
-        errorMessage = message
+        lastFailureNeedsReinstall = needsReinstall
+        errorMessage = clearedQueue ? "\(message) \(String(localized: "The waiting texts were cleared. Select them again to read them."))" : message
         showReadingPanel(.failed, context: context)
         interfaceSounds?.play(.attention)
     }

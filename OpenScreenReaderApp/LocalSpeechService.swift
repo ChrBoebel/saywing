@@ -58,15 +58,42 @@ extension SpeechReading {
 }
 
 enum SpeechFailure: Error, LocalizedError {
-    case notInstalled, tooLong, failed, outputChanged
+    case notInstalled, tooLong, failed, outputChanged, loadFailed, outOfMemory, interrupted, timedOut, invalidRequest
     var errorDescription: String? {
         switch self {
         case .outputChanged: String(localized: "The audio output changed, so reading stopped. Start it again to hear it on the new output.")
         case .notInstalled: Self.notInstalledDescription
-        case .tooLong: String(localized: "This development version reads up to 8,000 characters. Select a smaller region.")
-        case .failed: String(localized: "Local speech could not finish. Please try a smaller region. No cloud or system voice was substituted.")
+        case .tooLong: String(localized: "Saywing reads up to 8,000 characters at a time. Select a smaller region.")
+        case .failed, .invalidRequest: String(localized: "Local speech could not finish. Try again. No cloud or system voice was substituted.")
+        case .loadFailed: String(localized: "The voice model could not be loaded. Reinstall Saywing to restore it.")
+        case .outOfMemory: String(localized: "There wasn't enough memory for the voice. Close other apps and try again.")
+        case .interrupted: String(localized: "Local speech stopped unexpectedly. Try again. No cloud or system voice was substituted.")
+        case .timedOut: String(localized: "Local speech timed out. Try again. No cloud or system voice was substituted.")
         }
     }
+
+    /// A worker's error packet. Earlier runtimes send no code, which stays generic.
+    init(workerCode code: String?) {
+        switch code {
+        case "load_failed": self = .loadFailed
+        case "out_of_memory": self = .outOfMemory
+        case "too_long": self = .tooLong
+        case "invalid_request": self = .invalidRequest
+        default: self = .failed
+        }
+    }
+
+    /// What a new worker process can plausibly fix. Damaged files, missing memory
+    /// and a refused request would only fail again after another model load.
+    var isTransient: Bool {
+        switch self {
+        case .failed, .interrupted, .timedOut: true
+        case .notInstalled, .tooLong, .outputChanged, .loadFailed, .outOfMemory, .invalidRequest: false
+        }
+    }
+
+    /// Trying again cannot restore what is missing from this copy of the app.
+    var needsReinstall: Bool { self == .loadFailed || self == .notInstalled }
 
     private static var notInstalledDescription: String {
         #if DEBUG
@@ -135,6 +162,8 @@ private final class SpeechJob {
     let text: String
     let buffer: SpeechPreparationBuffer
     var task: Task<Void, Never>?
+    /// PCM already handed to the buffer. A retry continues after it, so nothing is heard twice.
+    var deliveredBytes = 0
     init(text: String, sampleRate: Int) {
         self.text = text
         buffer = SpeechPreparationBuffer(capacityBytes: sampleRate * 8 * 4)
@@ -154,6 +183,8 @@ final class LocalSpeechService: SpeechReading {
     private var session: SpeechWorkerSession?
     private var idleTask: Task<Void, Never>?
     private var readGeneration: UInt64 = 0
+    private let launchWorker: @MainActor (SpeechRuntimeConfiguration) throws -> SpeechWorkerTransport
+    private var lastProducer: Task<Void, Never>?
     private(set) var workerLaunchCount = 0
     var preparedAudioBytes: Int { prepared?.buffer.bufferedBytes ?? 0 }
     var workerPID: Int32? { session?.pid }
@@ -170,7 +201,13 @@ final class LocalSpeechService: SpeechReading {
     }
     static var installationSummary: String {
         let config = installedConfiguration
-        return config.isInstalled ? (config.bundled ? String(localized: "Bundled · offline development preview") : String(localized: "Installed for local development")) : String(localized: "Not installed")
+        guard config.isInstalled else { return String(localized: "Not installed") }
+        guard config.bundled else { return String(localized: "Installed for local development") }
+        #if DEBUG
+        return String(localized: "Bundled · offline development preview")
+        #else
+        return String(localized: "Bundled · works offline")
+        #endif
     }
     static var installedConfiguration: SpeechRuntimeConfiguration {
         let bundledRoot = Bundle.main.resourceURL?.appendingPathComponent("Speech")
@@ -186,8 +223,10 @@ final class LocalSpeechService: SpeechReading {
         return .init(root: bundledRoot ?? URL(fileURLWithPath: "/nonexistent/Speech"), bundled: true)
         #endif
     }
-    init(configuration: SpeechRuntimeConfiguration = LocalSpeechService.installedConfiguration) {
+    init(configuration: SpeechRuntimeConfiguration = LocalSpeechService.installedConfiguration,
+         launchWorker: @escaping @MainActor (SpeechRuntimeConfiguration) throws -> SpeechWorkerTransport = { try SpeechWorkerTransport.launch($0) }) {
         self.configuration = configuration
+        self.launchWorker = launchWorker
         playback = SpeechAudioPlayer(sampleRate: configuration.sampleRate)
     }
     isolated deinit { stop() }
@@ -247,6 +286,44 @@ final class LocalSpeechService: SpeechReading {
         }
     }
 
+    /// Exactly one retry per passage, always with a new worker on new pipes, so nothing
+    /// the old process still wrote can arrive. The buffer stays open: whatever waits for
+    /// this passage keeps waiting and continues at the same position. This relies on the
+    /// worker's per-text seed producing the same audio again.
+    private func produce(_ job: SpeechJob) async throws {
+        var mayRetry = true
+        while true {
+            try Task.checkCancellation()
+            guard producing === job else { throw CancellationError() }
+            if session == nil {
+                session = SpeechWorkerSession(transport: try launchWorker(configuration), sampleRate: configuration.sampleRate)
+                workerLaunchCount += 1
+            }
+            guard let session else { throw SpeechFailure.failed }
+            var alreadyDelivered = job.deliveredBytes
+            do {
+                try await session.synthesize(job.text, id: job.id) { pcm in
+                    guard pcm.count > alreadyDelivered else {
+                        alreadyDelivered -= pcm.count
+                        return
+                    }
+                    let fresh = Data(pcm.dropFirst(alreadyDelivered))
+                    alreadyDelivered = 0
+                    try await job.buffer.send(fresh)
+                    job.deliveredBytes += fresh.count
+                }
+                return
+            } catch {
+                // Stop, Esc and a skip end the job themselves; their kill is not a crash.
+                guard !(error is CancellationError), !Task.isCancelled, producing === job else { throw CancellationError() }
+                guard mayRetry, (error as? SpeechFailure)?.isTransient == true else { throw error }
+                mayRetry = false
+                session.stop()
+                self.session = nil
+            }
+        }
+    }
+
     private func startPreparedIfPossible() {
         guard producing == nil, let prepared, prepared.task == nil else { return }
         start(prepared)
@@ -259,16 +336,7 @@ final class LocalSpeechService: SpeechReading {
         job.task = Task { @MainActor [weak self, job] in
             guard let self else { job.buffer.cancel(); return }
             do {
-                try Task.checkCancellation()
-                guard self.producing === job else { throw CancellationError() }
-                if self.session == nil {
-                    self.session = try SpeechWorkerSession(configuration: self.configuration)
-                    self.workerLaunchCount += 1
-                }
-                guard let session = self.session else { throw SpeechFailure.failed }
-                try await session.synthesize(job.text, id: job.id) { packet in
-                    try await job.buffer.send(packet)
-                }
+                try await self.produce(job)
                 try Task.checkCancellation()
                 guard self.producing === job else { throw CancellationError() }
                 job.buffer.finish()
@@ -283,7 +351,11 @@ final class LocalSpeechService: SpeechReading {
                 }
             }
         }
+        lastProducer = job.task
     }
+
+    /// Returns once the most recent synthesis job has ended, however it ended.
+    func waitForProducerToSettle() async { await lastProducer?.value }
 
     func stopCurrent() {
         readGeneration &+= 1
@@ -339,6 +411,47 @@ final class LocalSpeechService: SpeechReading {
     }
 }
 
+/// The pipes to one worker and how to end it. The app launches a sandboxed process;
+/// tests put a scripted peer on real pipes behind the same session and packet reader.
+struct SpeechWorkerTransport {
+    let input: FileHandle
+    let output: FileHandle
+    let pid: () -> Int32?
+    let terminate: () -> Void
+
+    @MainActor
+    static func launch(_ configuration: SpeechRuntimeConfiguration) throws -> SpeechWorkerTransport {
+        guard configuration.isInstalled else { throw SpeechFailure.notInstalled }
+        guard let sandbox = WorkerSandbox.arguments(resources: configuration.root, modelRoot: nil,
+                                                    python: configuration.executable) else { throw SpeechFailure.notInstalled }
+        let worker = Process()
+        let requests = Pipe(), audio = Pipe()
+        worker.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
+        worker.arguments = sandbox + ["-I", "-B", configuration.script.path, "--model", configuration.model.path, "--session"]
+        worker.environment = ["PATH": "/usr/bin:/bin", "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1"]
+        worker.currentDirectoryURL = configuration.executable.deletingLastPathComponent()
+        worker.standardInput = requests
+        worker.standardOutput = audio
+        worker.standardError = FileHandle.nullDevice
+        let transport = SpeechWorkerTransport(
+            input: requests.fileHandleForWriting, output: audio.fileHandleForReading,
+            pid: { worker.isRunning ? worker.processIdentifier : nil },
+            terminate: { if worker.isRunning { kill(worker.processIdentifier, SIGKILL) } })
+        do {
+            guard fcntl(transport.input.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else { throw SpeechFailure.loadFailed }
+            try worker.run()
+            try requests.fileHandleForReading.close()
+            try audio.fileHandleForWriting.close()
+        } catch {
+            transport.terminate()
+            try? transport.input.close()
+            try? transport.output.close()
+            throw SpeechFailure.loadFailed
+        }
+        return transport
+    }
+}
+
 /// Versioned request IDs plus one in-flight producer isolate stale worker packets.
 @MainActor
 private final class SpeechWorkerSession {
@@ -348,40 +461,25 @@ private final class SpeechWorkerSession {
         let `protocol`: Int?
         let sampleRate: Int?
         let pcm: Data?
+        let code: String?
     }
     private struct Request: Encodable { let text: String; let language: String; let id: String }
-    private let worker = Process()
-    private let input: FileHandle
-    private let output: FileHandle
+    private let transport: SpeechWorkerTransport
+    private var input: FileHandle { transport.input }
     private let reader: SpeechPacketReader
     private let sampleRate: Int
     private var stopped = false
     private var timedOut = false
     private var packetGeneration: UInt64 = 0
-    var pid: Int32? { !stopped && worker.isRunning ? worker.processIdentifier : nil }
+    /// The worker sends its first `ready` only after the verified model has loaded.
+    private var modelLoaded = false
+    private var workerLost: SpeechFailure { modelLoaded ? .interrupted : .loadFailed }
+    var pid: Int32? { stopped ? nil : transport.pid() }
 
-    init(configuration: SpeechRuntimeConfiguration) throws {
-        guard configuration.isInstalled else { throw SpeechFailure.notInstalled }
-        sampleRate = configuration.sampleRate
-        let requests = Pipe(), audio = Pipe()
-        input = requests.fileHandleForWriting
-        output = audio.fileHandleForReading
-        reader = SpeechPacketReader(handle: output)
-        guard let sandbox = WorkerSandbox.arguments(resources: configuration.root, modelRoot: nil,
-                                                    python: configuration.executable) else { throw SpeechFailure.notInstalled }
-        worker.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
-        worker.arguments = sandbox + ["-I", "-B", configuration.script.path, "--model", configuration.model.path, "--session"]
-        worker.environment = ["PATH": "/usr/bin:/bin", "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1"]
-        worker.currentDirectoryURL = configuration.executable.deletingLastPathComponent()
-        worker.standardInput = requests
-        worker.standardOutput = audio
-        worker.standardError = FileHandle.nullDevice
-        do {
-            guard fcntl(input.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else { throw SpeechFailure.failed }
-            try worker.run()
-            try requests.fileHandleForReading.close()
-            try audio.fileHandleForWriting.close()
-        } catch { stop(); throw error }
+    init(transport: SpeechWorkerTransport, sampleRate: Int) {
+        self.transport = transport
+        self.sampleRate = sampleRate
+        reader = SpeechPacketReader(handle: transport.output)
     }
     isolated deinit { stop() }
 
@@ -392,7 +490,9 @@ private final class SpeechWorkerSession {
             language: SpeechRuntimeConfiguration.language(for: text), id: id))
         request.append(10)
         let writer = input
-        try await Task.detached { try writer.write(contentsOf: request) }.value
+        // A worker that is already gone refuses the write. Its last packet or the end of
+        // its output, read below, says why, so the write's own error adds nothing.
+        _ = try? await Task.detached { try writer.write(contentsOf: request) }.value
         var ready = false, receivedAudio = false
         while true {
             let waitLimit: Duration = receivedAudio ? .seconds(30) : .seconds(90)
@@ -409,21 +509,25 @@ private final class SpeechWorkerSession {
             catch {
                 deadline.cancel()
                 packetGeneration &+= 1
-                if timedOut { throw SpeechFailure.failed }
-                throw error
+                if timedOut { throw SpeechFailure.timedOut }
+                if stopped { throw CancellationError() }
+                throw error as? SpeechFailure == .interrupted ? workerLost : error
             }
             deadline.cancel()
             packetGeneration &+= 1
-            if timedOut { throw SpeechFailure.failed }
-            guard let line else { throw SpeechFailure.failed }
+            if timedOut { throw SpeechFailure.timedOut }
             try Task.checkCancellation()
             guard !stopped else { throw CancellationError() }
-            let packet = try JSONDecoder().decode(Packet.self, from: line)
+            guard let line else { throw workerLost }
+            guard let packet = try? JSONDecoder().decode(Packet.self, from: line) else { throw SpeechFailure.failed }
+            // Every error ends its worker and comes without an id: the pipe belongs to this one worker.
+            if packet.kind == "error" { throw SpeechFailure(workerCode: packet.code) }
             guard packet.id == id, packet.protocol == 2 else { throw SpeechFailure.failed }
             switch packet.kind {
             case "ready":
                 guard !ready, packet.sampleRate == sampleRate else { throw SpeechFailure.failed }
                 ready = true
+                modelLoaded = true
             case "audio":
                 guard ready, packet.sampleRate == sampleRate, let pcm = packet.pcm,
                       !pcm.isEmpty, pcm.count <= 96_000, pcm.count % 4 == 0 else { throw SpeechFailure.failed }
@@ -431,7 +535,8 @@ private final class SpeechWorkerSession {
                 try Task.checkCancellation()
                 guard !stopped else { throw CancellationError() }
                 receivedAudio = true
-                try input.write(contentsOf: Data("next\n".utf8))
+                // As with the request: a refused acknowledgement is explained by what is read next.
+                _ = try? input.write(contentsOf: Data("next\n".utf8))
             case "end":
                 guard ready, receivedAudio else { throw SpeechFailure.failed }
                 return
@@ -443,9 +548,9 @@ private final class SpeechWorkerSession {
         guard !stopped else { return }
         stopped = true
         packetGeneration &+= 1
-        if worker.isRunning { kill(worker.processIdentifier, SIGKILL) }
-        try? input.close()
-        try? output.close()
+        transport.terminate()
+        try? transport.input.close()
+        try? transport.output.close()
     }
 }
 
@@ -487,7 +592,8 @@ final class SpeechPacketReader: @unchecked Sendable {
             if count < 0, errno == EINTR { continue }
             guard count >= 0 else { throw SpeechFailure.failed }
             guard count > 0 else {
-                guard pending.isEmpty else { throw SpeechFailure.failed }
+                // A line cut off by the end of the output: the worker died writing it.
+                guard pending.isEmpty else { throw SpeechFailure.interrupted }
                 return nil
             }
             pending.append(contentsOf: block.prefix(count))

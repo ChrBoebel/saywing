@@ -55,7 +55,7 @@ Open3.popen3(environment, *worker, **options) do |input, output, error, process|
           complete = true
           break
         else
-          abort 'Generic worker failure'
+          abort "Worker failure: #{packet['code']}"
         end
       end
       input.close
@@ -69,7 +69,7 @@ end
 puts JSON.generate(first_audio_seconds: first_audio.round(3), audio_seconds: (frames / 44_100.0).round(3), peak: peak.round(4))
 
 invalid_output, invalid_error, status = Open3.capture3(environment, *worker, **options, stdin_data: "{\"text\":\"Private test sentinel\",\"language\":\"invalid\"}\n")
-abort 'Invalid request leaked or succeeded' unless !status.success? && invalid_error.empty? && JSON.parse(invalid_output) == {'kind' => 'error'}
+abort 'Invalid request leaked or succeeded' unless !status.success? && invalid_error.empty? && JSON.parse(invalid_output) == {'kind' => 'error', 'code' => 'invalid_request'}
 
 # Verify enforcement, not just the existence of a sandbox profile. No forbidden
 # operation transmits content; the connection target is loopback and the read
@@ -90,4 +90,4 @@ probe = <<~PYTHON
   print('PASS: network, file writes, reads outside the runtime and child processes denied')
 PYTHON
 abort 'Privacy probe failed' unless system(environment, *base, '-c', probe, File.expand_path(__FILE__), **options)
-puts 'PASS: real Supertonic PCM, bounded protocol, generic errors, and privacy enforcement'
+puts 'PASS: real Supertonic PCM, bounded protocol, coded errors, and privacy enforcement'

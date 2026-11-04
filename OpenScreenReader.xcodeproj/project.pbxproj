@@ -14,6 +14,7 @@
 		DD2000000000000000000004 /* MeetingAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000004 /* MeetingAudio.swift */; };
 		DD2000000000000000000003 /* EchoGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000003 /* EchoGate.swift */; };
 		DD2000000000000000000010 /* MeetingExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000010 /* MeetingExportTests.swift */; };
+		DE40000000000000000000F1 /* SpeechWorkerFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE30000000000000000000F1 /* SpeechWorkerFailureTests.swift */; };
 		DD2000000000000000000011 /* MeetingVoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000011 /* MeetingVoiceTests.swift */; };
 		DD2000000000000000000002 /* MeetingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000002 /* MeetingTests.swift */; };
 		DD2000000000000000000009 /* MeetingExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD1000000000000000000009 /* MeetingExport.swift */; };
@@ -87,6 +88,7 @@
 		DD1000000000000000000004 /* MeetingAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting/MeetingAudio.swift; sourceTree = "<group>"; };
 		DD1000000000000000000003 /* EchoGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting/EchoGate.swift; sourceTree = "<group>"; };
 		DD1000000000000000000010 /* MeetingExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingExportTests.swift; sourceTree = "<group>"; };
+		DE30000000000000000000F1 /* SpeechWorkerFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechWorkerFailureTests.swift; sourceTree = "<group>"; };
 		DD1000000000000000000011 /* MeetingVoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingVoiceTests.swift; sourceTree = "<group>"; };
 		DD1000000000000000000002 /* MeetingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTests.swift; sourceTree = "<group>"; };
 		DD1000000000000000000009 /* MeetingExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting/MeetingExport.swift; sourceTree = "<group>"; };
@@ -245,6 +247,7 @@
 			children = (
 				A00000000000000000000015 /* AppStatusTests.swift */,
 				DD1000000000000000000010 /* MeetingExportTests.swift */,
+				DE30000000000000000000F1 /* SpeechWorkerFailureTests.swift */,
 				DD1000000000000000000011 /* MeetingVoiceTests.swift */,
 				DD1000000000000000000002 /* MeetingTests.swift */,
 				D00000000000000000000002 /* OCRTests.swift */,
@@ -457,6 +460,7 @@
 			files = (
 				A00000000000000000000021 /* AppStatusTests.swift in Sources */,
 				DD2000000000000000000010 /* MeetingExportTests.swift in Sources */,
+				DE40000000000000000000F1 /* SpeechWorkerFailureTests.swift in Sources */,
 				DD2000000000000000000011 /* MeetingVoiceTests.swift in Sources */,
 				DD2000000000000000000002 /* MeetingTests.swift in Sources */,
 				D00000000000000000000001 /* OCRTests.swift in Sources */,

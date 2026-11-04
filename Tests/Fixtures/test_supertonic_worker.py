@@ -2,7 +2,11 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -105,6 +109,86 @@ class WorkerChecks(unittest.TestCase):
         for data in (b"", b"no\n", b"nextxx\n"):
             with self.assertRaises(ValueError):
                 worker.await_ack(io.BytesIO(data))
+
+    def session_packets(self, source, tts, **patches):
+        helper = Mock()
+        output = io.BytesIO()
+        patches.setdefault("load_speech_model", Mock(return_value=tts))
+        with patch.object(worker, "load_verified_helper", return_value=helper), patch.multiple(worker, **patches):
+            try:
+                worker.run(source, output, Path("/unused-test-model"), session=True)
+            except worker.WorkerFailure as failure:
+                return [json.loads(line) for line in output.getvalue().splitlines()], failure.code
+        return [json.loads(line) for line in output.getvalue().splitlines()], None
+
+    def session_request(self, text="Hallo."):
+        return json.dumps({"text": text, "language": "de", "id": "job"}).encode() + b"\n"
+
+    def test_failures_report_the_stage_they_happened_in(self):
+        import numpy as np
+        working = Mock(sample_rate=44100, return_value=(np.full((1, 441), 0.1), [0.01]))
+        for name, source, tts, patches, expected, kinds in [
+            ("broken model", self.session_request(), working,
+             {"load_speech_model": Mock(side_effect=RuntimeError("ONNX load"))}, "load_failed", []),
+            ("wrong sample rate", self.session_request(), Mock(sample_rate=24000), {}, "load_failed", []),
+            ("memory during load", self.session_request(), working,
+             {"load_speech_model": Mock(side_effect=MemoryError())}, "out_of_memory", []),
+            ("native allocation during load", self.session_request(), working,
+             {"load_speech_model": Mock(side_effect=RuntimeError("[ONNXRuntimeError] : 6 : Failed to allocate memory for requested buffer"))},
+             "out_of_memory", []),
+            ("invalid audio", self.session_request(), Mock(sample_rate=44100, return_value=(np.zeros((1, 441)), [0.01])), {},
+             "synthesis_failed", ["ready"]),
+            ("synthesis exception", self.session_request(), Mock(sample_rate=44100, side_effect=RuntimeError("inference")), {},
+             "synthesis_failed", ["ready"]),
+            ("memory during synthesis", self.session_request(), Mock(sample_rate=44100, side_effect=MemoryError()), {},
+             "out_of_memory", ["ready"]),
+            ("native arena during synthesis", self.session_request(),
+             Mock(sample_rate=44100, side_effect=RuntimeError("BFC Arena ran out of memory trying to allocate")), {},
+             "out_of_memory", ["ready"]),
+            ("invalid first request", b'{"text":" ","language":"de","id":"job"}\n', working, {}, "invalid_request", []),
+            ("too many characters", self.session_request("x" * 8001), working, {}, "too_long", []),
+            ("oversized frame", b"x" * 64002, working, {}, "too_long", []),
+        ]:
+            with self.subTest(name):
+                packets, code = self.session_packets(io.BytesIO(source), tts, **patches)
+                self.assertEqual(code, expected)
+                self.assertEqual([p["kind"] for p in packets], kinds)
+
+    def test_a_later_invalid_request_is_not_a_load_failure(self):
+        import numpy as np
+        tts = Mock(sample_rate=44100, return_value=(np.full((1, 441), 0.1), [0.01]))
+        source = io.BytesIO(self.session_request() + b"next\n" + b'{"text":"","language":"de","id":"job"}\n')
+        packets, code = self.session_packets(source, tts)
+        self.assertEqual(code, "invalid_request")
+        self.assertEqual([p["kind"] for p in packets], ["ready", "audio", "end"])
+
+    def run_process(self, stdin, *arguments):
+        """The real entry point in its own process, so main's descriptor changes stay out of the test runner."""
+        return subprocess.run(
+            [sys.executable, "-I", "-B", str(Path(worker.__file__)), *arguments],
+            input=stdin, capture_output=True, timeout=60)
+
+    def test_error_packets_carry_only_a_code_and_never_the_request(self):
+        sentinel = "Private test sentinel"
+        with tempfile.TemporaryDirectory(prefix=sentinel.replace(" ", "-")) as folder:
+            request = json.dumps({"text": sentinel, "language": "de", "id": "job"}).encode() + b"\n"
+            invalid = json.dumps({"text": sentinel, "language": "invalid", "id": "job"}).encode() + b"\n"
+            for name, stdin, arguments, expected in [
+                # Any install or hash problem ends in the same load failure, also for a model path holding text.
+                ("missing model", request, ["--model", os.path.join(folder, "missing"), "--session"], "load_failed"),
+                ("bad language", invalid, ["--model", os.path.join(folder, "missing"), "--session"], "invalid_request"),
+                ("bad arguments", request, ["--unknown", sentinel], "invalid_request"),
+            ]:
+                with self.subTest(name):
+                    result = self.run_process(stdin, *arguments)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(json.loads(result.stdout), {"kind": "error", "code": expected})
+                    self.assertEqual(result.stderr, b"")
+                    self.assertNotIn(b"Private", result.stdout)
+
+    def test_clean_session_eof_sends_nothing(self):
+        result = self.run_process(b"", "--model", "/unused", "--session")
+        self.assertEqual((result.returncode, result.stdout), (0, b""))
 
 
 if __name__ == "__main__":

@@ -1081,6 +1081,142 @@ struct InteractionTests {
         #expect(speech.stopped)
     }
 
+    @Test
+    func speechFailuresKeepTheirOwnMessageAndOnlyDamagedFilesLoseTryAgain() async {
+        let selection = RegionSelectionControllerFake()
+        let speech = SpeechFake()
+        let model = AppModel(modelTerms: .acceptedForTesting(), shortcutStore: MemoryShortcutStore(),
+            hotkeyManager: HotkeyManagerFake(registrationResult: .registered),
+            selectionController: selection, captureService: CaptureFake(), escapeMonitor: EscapeFake(),
+            ocrService: OCRFake(), speechService: speech)
+        for (failure, help) in [(SpeechFailure.loadFailed, AppModel.ErrorHelp.reinstall), (.outOfMemory, .retry), (.interrupted, .retry),
+                                (.notInstalled, .reinstall), (.failed, .retry)] {
+            speech.failure = failure
+            await model.handleReadRequest()
+            selection.complete(Self.ocrRegion)
+            await model.waitForInteractionToSettle()
+            await model.waitForCaptureToSettle()
+            await model.waitForSpeechToSettle()
+            #expect(model.status == .error)
+            #expect(model.errorMessage == failure.localizedDescription)
+            #expect(model.errorHelp == help)
+        }
+    }
+
+    @Test
+    func aFailedRunSaysThatItsWaitingTextsWereCleared() async throws {
+        let f = QueueFixture()
+        await f.model.handleReadRequest()
+        f.selection.complete(Self.ocrRegion)
+        await f.model.waitForCaptureToSettle()
+        try await f.speech.waitForReads(1)
+        f.ocr.result = OCRResult(lines: ["Danach"])
+        f.model.enqueueAddRequest()
+        await f.model.waitForInteractionToSettle()
+        f.selection.complete(Self.ocrRegion)
+        await f.model.waitForQueueInputToSettle()
+        #expect(f.model.queuedTextCount == 1)
+        f.speech.failFirst(.interrupted)
+        await f.model.waitForSpeechToSettle()
+        #expect(f.model.status == .error)
+        #expect(f.model.queuedTextCount == 0)
+        #expect(!f.model.canSkipText)
+        #expect(f.model.errorMessage == "\(SpeechFailure.interrupted.localizedDescription) The waiting texts were cleared. Select them again to read them.")
+        #expect(f.speech.texts.count == 1, "Nothing was read past the failure.")
+    }
+
+    /// Reads with the real service, session and player against scripted workers.
+    private func modelWithScriptedWorkers(_ workers: ScriptedSpeechWorkers, selection: RegionSelectionControllerFake, ocr: OCRFake) -> (AppModel, LocalSpeechService) {
+        let service = workers.service()
+        let model = AppModel(modelTerms: .acceptedForTesting(), shortcutStore: MemoryShortcutStore(),
+            hotkeyManager: HotkeyManagerFake(registrationResult: .registered),
+            selectionController: selection, captureService: CaptureFake(), escapeMonitor: EscapeFake(),
+            ocrService: ocr, speechService: service)
+        return (model, service)
+    }
+
+    @Test
+    func theQueueSurvivesACrashOnItsNextTextAndReadsItWithAFreshWorker() async throws {
+        let addedSecondText = AsyncGate()
+        let selection = RegionSelectionControllerFake(), ocr = OCRFake()
+        let workers = ScriptedSpeechWorkers([
+            .custom { worker in
+                let first = try await worker.nextRequest()
+                worker.ready(first)
+                try await addedSecondText.wait()
+                worker.audio(first)
+                worker.end(first)
+                let second = try await worker.nextRequest()
+                worker.ready(second)
+                worker.exit()
+            },
+            .completes(),
+        ])
+        let (model, service) = modelWithScriptedWorkers(workers, selection: selection, ocr: ocr)
+        defer { service.stop() }
+        await model.handleReadRequest()
+        selection.complete(Self.ocrRegion)
+        await model.waitForCaptureToSettle()
+        try await workers.waitForLaunches(1)
+        ocr.result = OCRResult(lines: ["Danach"])
+        model.enqueueAddRequest()
+        await model.waitForInteractionToSettle()
+        selection.complete(Self.ocrRegion)
+        await model.waitForQueueInputToSettle()
+        #expect(model.queuedTextCount == 1)
+        addedSecondText.open()
+        for _ in 0..<2_500 where model.status != .ready && model.status != .error { try await Task.sleep(for: .milliseconds(2)) }
+        #expect(model.status == .ready)
+        #expect(model.errorMessage == nil)
+        #expect(workers.launched.count == 2)
+        #expect(workers.launched.last?.receivedTexts == ["Danach"])
+    }
+
+    @Test
+    func stopDuringARetryClearsEverythingAndNoLatePacketPlays() async throws {
+        let addedSecondText = AsyncGate(), retrying = AsyncGate()
+        var retryID = ""
+        let selection = RegionSelectionControllerFake(), ocr = OCRFake()
+        let workers = ScriptedSpeechWorkers([
+            .custom { worker in
+                let first = try await worker.nextRequest()
+                worker.ready(first)
+                try await addedSecondText.wait()
+                worker.exit()
+            },
+            .custom { worker in
+                retryID = try await worker.nextRequest()
+                worker.ready(retryID)
+                retrying.open()
+            },
+        ])
+        let (model, service) = modelWithScriptedWorkers(workers, selection: selection, ocr: ocr)
+        defer { service.stop() }
+        await model.handleReadRequest()
+        selection.complete(Self.ocrRegion)
+        await model.waitForCaptureToSettle()
+        try await workers.waitForLaunches(1)
+        ocr.result = OCRResult(lines: ["Danach"])
+        model.enqueueAddRequest()
+        await model.waitForInteractionToSettle()
+        selection.complete(Self.ocrRegion)
+        await model.waitForQueueInputToSettle()
+        addedSecondText.open()
+        try await retrying.wait()
+        #expect(model.status == .synthesizing)
+        model.enqueueStopRequest()
+        await model.waitForInteractionToSettle()
+        workers.launched[1].audio(retryID, bytes: 48_000)
+        await model.waitForSpeechToSettle()
+        await service.waitForProducerToSettle()
+        #expect(model.status == .stopped)
+        #expect(model.queuedTextCount == 0)
+        #expect(workers.launched.count == 2)
+        #expect(workers.launched[1].killed)
+        #expect(service.workerPID == nil)
+        #expect(service.playbackDiagnostics.frames == 0)
+    }
+
     @Test(arguments: [false, true])
     func modelLoadingCanBeCancelledOrTimedOutWithoutWaitingForWorker(timeout: Bool) async {
         let selection = RegionSelectionControllerFake()
@@ -1101,6 +1237,7 @@ struct InteractionTests {
         if timeout { await model.waitForTimeoutToSettle() }
         else { await model.handleReadRequest() }
         #expect(model.status == (timeout ? .error : .stopped))
+        #expect(model.errorMessage == (timeout ? SpeechFailure.timedOut.localizedDescription : nil))
         #expect(speech.stopped)
         speech.resume()
         await model.waitForSpeechToSettle()
@@ -2633,12 +2770,14 @@ private final class SpeechFake: SpeechReading {
     var suspend = false
     var stopped = false
     var shouldFail = false
+    var failure: SpeechFailure?
     var emitPlayback = true
     private var continuation: CheckedContinuation<Void, Never>?
     private var started: CheckedContinuation<Void, Never>?
 
     func read(_ text: String, onPlayback: @escaping @MainActor () -> Void) async throws {
         receivedText = text
+        if let failure { throw failure }
         if shouldFail { throw NSError(domain: "private synthetic speech diagnostic", code: 1) }
         if emitPlayback { onPlayback() }
         if suspend {
@@ -2668,6 +2807,7 @@ private final class QueueSpeechFake: SpeechReading {
         try await withCheckedThrowingContinuation { completions.append($0) }
     }
     func finishFirst() { if !completions.isEmpty { completions.removeFirst().resume() } }
+    func failFirst(_ failure: SpeechFailure) { if !completions.isEmpty { completions.removeFirst().resume(throwing: failure) } }
     func stop() {
         preparedText = nil
         stopCurrent()

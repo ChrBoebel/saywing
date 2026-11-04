@@ -211,6 +211,46 @@
         }
       }
     },
+    "Local speech could not finish. Try again. No cloud or system voice was substituted.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die lokale Sprachausgabe konnte nicht abschließen. Versuche es erneut. Es wurde keine Cloud- oder Systemstimme verwendet."
+          }
+        }
+      }
+    },
+    "Local speech stopped unexpectedly. Try again. No cloud or system voice was substituted.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die lokale Sprachausgabe wurde unerwartet beendet. Versuche es erneut. Es wurde keine Cloud- oder Systemstimme verwendet."
+          }
+        }
+      }
+    },
+    "Local speech timed out. Try again. No cloud or system voice was substituted.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die lokale Sprachausgabe hat zu lange gedauert. Versuche es erneut. Es wurde keine Cloud- oder Systemstimme verwendet."
+          }
+        }
+      }
+    },
+    "Saywing checks for updates over the internet. This sends no screen content, text or audio, and you can turn it off in General.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saywing sucht über das Internet nach Updates. Dabei werden keine Bildschirminhalte, Texte oder Audiodaten gesendet. Du kannst das unter „Allgemein“ ausschalten."
+          }
+        }
+      }
+    },
     "Advanced": {
       "localizations": {
         "de": {
@@ -377,6 +417,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unten"
+          }
+        }
+      }
+    },
+    "Bundled · works offline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitgeliefert · funktioniert offline"
           }
         }
       }
@@ -1561,26 +1611,6 @@
         }
       }
     },
-    "Local speech could not finish. Please try a smaller region. No cloud or system voice was substituted.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die lokale Sprachausgabe konnte nicht abschließen. Bitte wähle einen kleineren Bereich. Es wurde keine Cloud- oder Systemstimme verwendet."
-          }
-        }
-      }
-    },
-    "Local speech timed out. Please try a smaller region.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die lokale Sprachausgabe hat zu lange gedauert. Bitte wähle einen kleineren Bereich."
-          }
-        }
-      }
-    },
     "Machine-generated voice M1": {
       "localizations": {
         "de": {
@@ -1831,12 +1861,22 @@
         }
       }
     },
-    "No account and no internet connection": {
+    "No account. Reading and dictation work offline.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Konto und keine Internetverbindung"
+            "value": "Kein Konto. Vorlesen und Diktieren funktionieren offline."
+          }
+        }
+      }
+    },
+    "Only update checks and models you install use the internet": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Update-Prüfungen und Modelle, die du installierst, nutzen das Internet"
           }
         }
       }
@@ -2936,7 +2976,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Laufzeit"
+            "value": "Laufzeitumgebung"
           }
         }
       }
@@ -4421,6 +4461,36 @@
         }
       }
     },
+    "The voice model could not be loaded. Reinstall Saywing to restore it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Stimmmodell konnte nicht geladen werden. Installiere Saywing erneut, um es wiederherzustellen."
+          }
+        }
+      }
+    },
+    "The waiting texts were cleared. Select them again to read them.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die wartenden Texte wurden entfernt. Wähle sie erneut aus, um sie vorlesen zu lassen."
+          }
+        }
+      }
+    },
+    "There wasn't enough memory for the voice. Close other apps and try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für die Stimme war nicht genug Arbeitsspeicher frei. Schließe andere Apps und versuche es erneut."
+          }
+        }
+      }
+    },
     "This build is missing model resources. Reinstall Saywing to restore them.": {
       "localizations": {
         "de": {
@@ -4431,12 +4501,12 @@
         }
       }
     },
-    "This development version reads up to 8,000 characters. Select a smaller region.": {
+    "Saywing reads up to 8,000 characters at a time. Select a smaller region.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Entwicklungsversion liest bis zu 8.000 Zeichen. Wähle einen kleineren Bereich."
+            "value": "Saywing liest bis zu 8.000 Zeichen auf einmal. Wähle einen kleineren Bereich."
           }
         }
       }
