@@ -39,6 +39,12 @@ Download the signed and notarized **beta** for your Mac (macOS 14 or later):
 
 Open the DMG and drag Saywing to Applications. On first use, setup explains each permission before asking for it and asks you to accept the Supertonic 3 model terms before the reading voice is used. Saywing updates itself through Sparkle; you can turn automatic checks off in Settings.
 
+Or install from the [Homebrew tap](https://github.com/ChrBoebel/homebrew-tap):
+
+```sh
+brew install --cask chrboebel/tap/saywing
+```
+
 It is a beta: Intel builds are tested under Rosetta only, and a fresh-Mac walkthrough is still open (see the status below). Watch [Releases](https://github.com/ChrBoebel/saywing/releases) (Watch → Custom → Releases) to hear about new versions, or [build from source](#building-from-source).
 
 <details>
