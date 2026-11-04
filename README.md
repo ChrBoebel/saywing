@@ -90,7 +90,7 @@ The selection works like ⌘⇧4: hold Space to move the region, Shift to lock a
 
 ## Also included
 
-- **Meeting transcript (macOS 26 or later).** An explicitly started, consented live transcript of **Me** (microphone) and **Others** (other apps' audio). It uses Apple's on-device speech recognition. No audio is saved, and the transcript leaves memory only through Copy or Save. See [ADR 0006](docs/decisions/0006-local-meeting-transcript.md).
+- **Meeting transcript (macOS 26 or later).** An explicitly started, consented live transcript of **Me** (microphone) and **Others** (other apps' audio). It uses Apple's on-device speech recognition. No audio is saved, and the transcript leaves memory only through Copy or Save. See [ADR 0006](docs/decisions/0006-local-meeting-transcript.md). From the next release on, it also tells the others' voices apart with a local voice model. This is not yet measured on real calls, and similar voices or short turns can be confused ([ADR 0008](docs/decisions/0008-meeting-speakers-and-pdf.md)).
 - **Guided setup** that explains each macOS permission before requesting it, followed by a real reading test.
 - **English and German interface**, following your macOS language.
 - **Accessibility:** VoiceOver labels and actions; respects Reduce Motion, Reduce Transparency and Increase Contrast.

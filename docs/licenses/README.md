@@ -11,6 +11,7 @@ This folder holds the original license texts and notices for third-party softwar
 ## Application and runtime components
 
 - [`Sparkle-2.10.0.txt`](Sparkle-2.10.0.txt) — Sparkle 2.10.0 update framework license and bundled dependency notices.
+- [`FluidAudio-0.18.2.txt`](FluidAudio-0.18.2.txt) — licenses of the FluidAudio code linked with only its `Diarizer` trait: FluidAudio and VBx (Apache-2.0), fastcluster (BSD 2-Clause). The separate LS-EEND model and its notice ([`../../Runtime/Diarization/LICENSE-LS-EEND.txt`](../../Runtime/Diarization/LICENSE-LS-EEND.txt)) reach only builds that carry the model ([ADR 0008](../decisions/0008-meeting-speakers-and-pdf.md)).
 - [`Python-3.12.15/`](Python-3.12.15/) — CPython 3.12.15 license texts and provenance for the Apple Silicon runtimes.
 - [`Python-3.12.15-Intel/`](Python-3.12.15-Intel/) — CPython 3.12.15 license texts and provenance for the Intel runtimes.
 - [`GCC-13.4.0/`](GCC-13.4.0/) — GCC 13.4.0 runtime library licenses (GPL-3.0 with the GCC Runtime Library Exception, LGPL-2.1 for libquadmath).

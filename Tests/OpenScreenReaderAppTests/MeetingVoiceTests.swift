@@ -289,6 +289,28 @@ struct MeetingVoiceTrackerTests {
         #expect(box.failures == ["model gone"])
         #expect(box.spans.isEmpty)
     }
+
+    /// The model and its state end with the transcript, even while the tracker itself
+    /// stays reachable from the finished transcript's router.
+    @Test
+    func theDiarizerIsReleasedWhenTheTrackerEnds() {
+        func stillAlive(after end: (MeetingVoiceTracker, DiarizerFake) -> Void) -> Bool {
+            var diarizer: DiarizerFake? = DiarizerFake()
+            weak var weakly = diarizer
+            let tracker = self.tracker(diarizer!, VoiceBox())
+            tracker.append(second(), at: 0)
+            end(tracker, diarizer!)
+            diarizer = nil
+            tracker.drain()
+            return withExtendedLifetime(tracker) { weakly != nil }
+        }
+        #expect(!stillAlive { tracker, _ in tracker.finish() })
+        #expect(!stillAlive { tracker, _ in tracker.cancel() })
+        #expect(!stillAlive { tracker, diarizer in
+            diarizer.failure = MeetingError("model gone")
+            tracker.append(second(), at: 1)
+        })
+    }
 }
 
 @Suite("Meeting voice model")

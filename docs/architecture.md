@@ -243,7 +243,7 @@ model or provider.
 | `MeetingController` | Consent → start (recognition first, then sources) → live → stop → done/discard; `GenerationGate` against late results; limits of 2 h (notice after 1 h 55 min), 10 min of silence, sleep/session switch; copy/save only on click |
 | `MeetingView` | SwiftUI window: consent, conversation view with levels, notice when system audio is missing, completion actions |
 
-`AppModel` holds the controller only for display: the menu bar ring takes precedence over all other states, and updates wait. Reading aloud, Esc and dictation do not interfere. No part of the module writes files except through the explicit save dialog, and none opens a network connection.
+`AppModel` holds the controller only for display: the menu bar ring takes precedence over all other states, and updates wait. Reading aloud, Esc and dictation do not interfere. No part of the module writes files except through the explicit save dialog, and none opens a network connection. The one exception is outside its control: in a build with the voice model, CoreML caches a compiled form of that model in the app's caches folder when it loads.
 
 ### Voices and PDF export — 2026-10-18
 
@@ -254,8 +254,9 @@ model or provider.
 | `MeetingVoiceDiarizing` | Interface for a diarizer on the "Others" track. One queue, times in seconds of the audio fed in; each call returns only new spans |
 | `MeetingVoiceTracker` | Feeds "Others" into the diarizer on its own queue and places the spans on the meeting timeline through anchors, also across gaps. If the diarizer falls more than 5 s behind, audio is dropped instead of queued. Stop drains the look-ahead, Discard silences late results, and an error ends only the voice separation |
 | `MeetingTranscript` (voices) | Each word of "Others" goes to the voice that spoke most during it (otherwise to the nearest one within 0.6 s); a change of voice splits the segment. Numbers follow the order of first words and stay stable across merges. Names and merges live only in RAM |
-| `MeetingVoiceModel` | Finds the bundled LS-EEND model in `Contents/Resources/Diarization`; without a model, "Others" stays one person |
+| `MeetingVoiceModel` | Finds the LS-EEND model in `Contents/Resources/Diarization` and makes the diarizer when a transcript starts; without a model, "Others" stays one person |
+| `LSEENDMeetingDiarizer` | The only file importing FluidAudio (exact 0.18.2, `traits = (Diarizer)`). Runs `LSEENDDiarizer` with CoreML on the CPU in the app process, loads only the given local model, resamples through one long-lived converter, keeps no frames or segments, and reports a voice still speaking once a second. Released as soon as the tracker finishes, is cancelled or fails |
 | `MeetingExport` | Visible turns with their labels; Markdown (also used by Copy), plain text and PDF. The PDF is set with Core Text on numbered A4 pages and carries a structure tree (heading, paragraphs) for screen readers. Document info holds only the title and "Saywing" |
 | `MeetingView` | A color mark plus name or number per voice; the label opens "Rename…" and "Same Person As". The save panel has a format menu, PDF first |
 
-Open: the adapter to FluidAudio's `LSEENDDiarizer` (`Diarizer` trait) waits for the build decision in ADR 0008. Until then `makeVoiceDiarizer` returns no diarizer, so the others stay "Others"; the PDF export and the echo handling are active.
+The adapter is in every build. The model is only in builds made with `scripts/release.py --diarization-model`; the release workflow passes that when the repository variable `SAYWING_BUNDLE_DIARIZATION_MODEL` is exactly `true`, which public builds use from the next release on (decision in ADR 0008). Without the model, `makeVoiceDiarizer` returns no diarizer and the others stay "Others"; PDF export and echo handling work either way.

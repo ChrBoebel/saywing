@@ -213,9 +213,11 @@ Setup additionally saves the dictation shortcut, optional Fn setting and the mod
 [ADR 0008](decisions/0008-meeting-speakers-and-pdf.md).
 
 - **Telling voices apart:**
-  - Only the "Others" track, live on the device, with the bundled LS-EEND model.
-  - No download, no network connection.
+  - Only in builds that carry the LS-EEND model: public builds from the next release on (0.1.30 does not). In a build without it, all other participants stay "Others" and no voice analysis runs.
+  - Only the "Others" track, live on the device. The model is a CoreML model running on the CPU inside the Saywing app process, not in the sandboxed speech or dictation worker.
+  - No download, no network connection. FluidAudio's download code is linked into the app but is never called, and its offline switch is on.
   - Like the recognizer's input, the audio is discarded continuously. If the analysis falls behind, audio is dropped instead of collected (at most about 5 s in RAM).
+  - The first time the model loads, CoreML keeps a compiled form of the model (about 43 MB) in `~/Library/Caches/<bundle id>/com.apple.e5rt.e5bundlecache`. There is one copy per model location and macOS build, so moving the app adds another until the folder is cleared. It is derived only from the model and contains no audio or anything about voices. The session itself adds nothing to it. Deleting the folder is safe.
 - **No voice profiles:**
   - Saywing stores no voice characteristics and does not recognize anyone across transcripts.
   - The model state ends with the transcript.

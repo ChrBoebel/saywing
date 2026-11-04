@@ -4521,6 +4521,16 @@
         }
       }
     },
+    "This audio format cannot be used to tell voices apart.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit diesem Audioformat können Stimmen nicht unterschieden werden."
+          }
+        }
+      }
+    },
     "This microphone format is not supported yet.": {
       "localizations": {
         "de": {

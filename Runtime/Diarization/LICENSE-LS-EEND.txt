@@ -25,5 +25,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The models were fine-tuned on AMI, CALLHOME, DIHARD II or DIHARD III, depending
-on the variant. Those datasets keep their own terms.
+Training data as published by the authors (arXiv:2410.06670): every variant was
+pretrained on simulated mixtures from Switchboard-2 (Phases I-III), Switchboard
+Cellular (Parts 1-2) and NIST SRE 2004-2008 (Linguistic Data Consortium), with
+MUSAN noise and simulated room impulse responses, and then fine-tuned on AMI,
+CALLHOME, DIHARD II or DIHARD III, depending on the variant.
+
+The MIT license above grants no rights in any dataset. Each dataset keeps its own
+terms. This notice does not state that any data provider approved this distribution.

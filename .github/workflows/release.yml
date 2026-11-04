@@ -75,6 +75,9 @@ jobs:
       SAYWING_PUBLIC_KEY: ${{ vars.SAYWING_SPARKLE_PUBLIC_KEY || 'UkAO/uyBRKSNY0+0gLVrnxa6vaXaVE4cJueFv1JVIT0=' }}
       SAYWING_SIGNING_IDENTITY: ${{ vars.SAYWING_SIGNING_IDENTITY }}
       SAYWING_TEAM_ID: ${{ vars.SAYWING_TEAM_ID }}
+      # Off unless exactly "true": whether a build carries the voice model is a maintainer
+      # decision (ADR 0008). Without it the others stay "Others".
+      SAYWING_BUNDLE_DIARIZATION_MODEL: ${{ vars.SAYWING_BUNDLE_DIARIZATION_MODEL }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,8 +118,15 @@ jobs:
           SAYWING_APPLE_ID: ${{ secrets.SAYWING_APPLE_ID }}
           SAYWING_APPLE_APP_PASSWORD: ${{ secrets.SAYWING_APPLE_APP_PASSWORD }}
         run: python3 scripts/prepare-release-ci.py credentials
+      - name: Fetch and verify the pinned voice model (only when enabled)
+        if: vars.SAYWING_BUNDLE_DIARIZATION_MODEL == 'true'
+        run: python3 scripts/fetch-diarization-model.py "$RUNNER_TEMP/saywing-diarization-model"
       - name: Build, sign, notarize and create signed appcast
         run: |
+          voice_model=()
+          if [ "$SAYWING_BUNDLE_DIARIZATION_MODEL" = "true" ]; then
+            voice_model=(--diarization-model "$RUNNER_TEMP/saywing-diarization-model")
+          fi
           python3 scripts/release.py \
             --runtime-app "$RUNNER_TEMP/saywing-runtime/Saywing.app" \
             --architecture "$SAYWING_ARCHITECTURE" \
@@ -128,7 +138,8 @@ jobs:
             --public-key "$SAYWING_PUBLIC_KEY" \
             --keychain "$RUNNER_TEMP/saywing-release.keychain-db" \
             --sparkle-key-file "$RUNNER_TEMP/saywing-sparkle.key" \
-            --notary-profile Saywing-CI --notarize --public-release
+            --notary-profile Saywing-CI --notarize --public-release \
+            "${voice_model[@]}"
       # Artifacts of a public repository are downloadable by any GitHub user.
       # The DMG is uploaded only as a one-day handoff to the separate publish job;
       # without publication only checksums and metadata are kept.
