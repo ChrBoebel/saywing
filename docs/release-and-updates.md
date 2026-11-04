@@ -231,7 +231,7 @@ conditions are evaluated before environment variables become available):
 | --- | --- |
 | `SAYWING_RELEASE_ENABLED` | `true` allows the release workflow to package |
 | `SAYWING_PUBLISH_ENABLED` | `true` enables the publish job; only after the download routes and bucket passed a live smoke test |
-| `SAYWING_BUNDLE_DIARIZATION_MODEL` | Exactly `true` fetches the pinned, hash-verified LS-EEND voice model in the package job and bundles it. Leave unset until the maintainer has decided the open training-data question in ADR 0008; without it, the others stay "Others" |
+| `SAYWING_BUNDLE_DIARIZATION_MODEL` | Exactly `true` fetches the pinned, hash-verified LS-EEND voice model in the package job and bundles it. Set to `true` by maintainer decision of 2026-11-04 (ADR 0008); turn it off if a rights holder objects; without it, the others stay "Others" |
 | `SAYWING_INTEL_RELEASE_ENABLED` | Opt-in for the Intel matrix leg; leave unset/false until separately approved. The GitHub release mirror needs both architectures and is skipped without it |
 | `SAYWING_S3_ENDPOINT` | HTTPS endpoint of the S3-compatible bucket (publish job only) |
 | `SAYWING_S3_BUCKET` | Bucket name (publish job only) |

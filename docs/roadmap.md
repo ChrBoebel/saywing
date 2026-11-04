@@ -17,7 +17,7 @@
 - Blind listening comparison with Apple's voices, voice selection, and memory/latency/energy measurement on an M4 with 16 GB RAM.
 - Live VoiceOver/keyboard walkthrough ([#46](https://github.com/ChrBoebel/saywing/issues/46)) and a full real UI regression.
 - A guide to verify offline behavior yourself ([#48](https://github.com/ChrBoebel/saywing/issues/48)).
-- Telling the others' voices apart in meeting transcripts: the interface, tracking and runtime adapter exist, but the model ships in no build until the maintainer decides on its training-data question ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)).
+- Telling the others' voices apart in meeting transcripts: public builds carry the voice model from the next release on ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)); measuring it on real calls is still open.
 - Physical macOS 14/15 and Intel reports ([#47](https://github.com/ChrBoebel/saywing/issues/47), [#31](https://github.com/ChrBoebel/saywing/issues/31)).
 - Name comprehension and trademark review; demo GIF/video and screenshots.
 

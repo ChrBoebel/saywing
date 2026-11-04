@@ -1,6 +1,6 @@
 # ADR 0008: Telling meeting speakers apart, and PDF export
 
-- Status: accepted. The runtime adapter is integrated and pinned. No build carries the model unless the maintainer turns it on; that decision is open because of the training data (see "Open"). Until then the others stay "Others".
+- Status: accepted. The runtime adapter is integrated and pinned. By maintainer decision of 2026-11-04, public builds carry the DIHARD III variant from the next release on (see "Model decision"). Release 0.1.30 does not carry it.
 - Date: 2026-10-18
 - Decision: project maintainer, on a proposal to tell the voices of the other participants apart locally, let the user name them, and export the transcript as PDF.
 - Extends: [ADR 0006](0006-local-meeting-transcript.md). That ADR listed speaker diarisation as out of scope until separately decided. This ADR is that decision.
@@ -59,7 +59,7 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 | Size | 44.4 MB per variant (`weights/weight.bin`) plus about 0.2 MB of graph and metadata |
 | Hashes | Every file is pinned in `Runtime/Diarization/ls-eend-manifest.json` with size and SHA-256 |
 | Runtime code | [FluidAudio](https://github.com/FluidInference/FluidAudio) 0.18.2 (revision `e396cf780c4abf8e395087467c0585d3b0d17f68`), Apache-2.0, exact-version reference with `traits = (Diarizer)` in the Xcode project. Linked with it: `FastClusterWrapper` (fastcluster, BSD 2-Clause), `MachTaskSelfWrapper`, and VBx-derived clustering (Apache-2.0). Not linked: TTS code, G2P resources, the prebuilt NeMo binary. Notices: `docs/licenses/FluidAudio-0.18.2.txt`. |
-| Delivery | Only in builds that carry it: `scripts/release.py --diarization-model`, which the release workflow passes only when the repository variable `SAYWING_BUNDLE_DIARIZATION_MODEL` is exactly `true` (off by default). Never downloaded at runtime. Weights are not committed to Git. |
+| Delivery | Only in builds that carry it: `scripts/release.py --diarization-model`, which the release workflow passes only when the repository variable `SAYWING_BUNDLE_DIARIZATION_MODEL` is exactly `true`. Never downloaded at runtime. Weights are not committed to Git. |
 
 ## Consequences
 
@@ -71,10 +71,17 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 - The project's own LS-EEND documentation states recordings up to one hour. Transcripts may run two hours; the second hour must be checked in the gate.
 - Speaker voices are biometric data under GDPR Art. 9 as soon as they are used to identify someone. Saywing does not identify anyone, keeps nothing, and the user names voices by hand. This belongs in the legal review that ADR 0006 already makes a release gate.
 
+## Model decision — 2026-11-04
+
+Public builds carry the DIHARD III variant (`dih3`, up to 10 speakers), by maintainer decision, deliberately without external counsel and without written answers from LDC or the authors.
+
+- **Why this variant:** it separated the most readers in the measurements below. AMI has the least burdened last training stage but no clean chain, and it measured weakest with three and five readers.
+- **What the analysis of 2026-11-04 found (not legal advice):** no variant is free of LDC data, because all share the pretraining above; the LDC agreements do not settle whether trained weights are covered; and the authors' MIT grant does not explicitly name the weights. It recommended asking LDC and the authors in writing before bundling. The maintainer decided to go ahead and accepts this risk.
+- **If a rights holder objects:** turn `SAYWING_BUNDLE_DIARIZATION_MODEL` off and publish a new release. Without the model the others stay "Others", and nothing else depends on it.
+
 ## Open
 
-- **Whether any build carries the model (maintainer decision).** A license analysis of 2026-11-04 found: no variant is free of LDC data, because all share the pretraining above; the LDC agreements do not settle whether trained weights are covered; and the explicit MIT grant for the weights is unclear. Its recommendation is to ask LDC and the authors in writing before bundling. `SAYWING_BUNDLE_DIARIZATION_MODEL` stays off until the maintainer decides. This analysis is not legal advice.
-- **Variant.** `bundled_variant` still says `dih3` and only takes effect in a build that carries the model. AMI (up to 4 speakers) has the least burdened last training stage, not a clean chain; CALLHOME (up to 7) and DIHARD III (up to 10) separated more readers in the measurements below. Recorded multi-speaker calls are still missing.
+- **Real calls.** Recorded multi-speaker calls are still missing; the numbers below are read speech only. Similar voices and short turns can be confused.
 
 ## Validation gates
 

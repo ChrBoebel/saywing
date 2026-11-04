@@ -225,7 +225,7 @@ Project decision ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)).
   - A calm color mark precedes the label. The color only helps scanning; the label says who is speaking.
   - Clicking the label opens "Rename…" (a dialog with a name field) and "Same Person As ▸" (merge, when one person was heard as two voices).
   - Names apply immediately to every turn and to the export. A change counts as unsaved.
-  - Voices appear only in builds that carry the optional model, which is off by default.
+  - Voices appear only in builds that carry the model: public builds from the next release on.
   - Without a model or after an error, the turns stay "Others"; an error during recording is mentioned once in the footer.
   - The label follows the speech by about one second. Similar voices can be heard as one; "Same Person As" fixes only the opposite case.
 - **Saving:**

@@ -213,7 +213,7 @@ Setup additionally saves the dictation shortcut, optional Fn setting and the mod
 [ADR 0008](decisions/0008-meeting-speakers-and-pdf.md).
 
 - **Telling voices apart:**
-  - Only in builds that carry the optional LS-EEND model. Whether a build carries it is the maintainer's decision, and it is off by default; without it, all other participants stay "Others" and no voice analysis runs.
+  - Only in builds that carry the LS-EEND model: public builds from the next release on (0.1.30 does not). In a build without it, all other participants stay "Others" and no voice analysis runs.
   - Only the "Others" track, live on the device. The model is a CoreML model running on the CPU inside the Saywing app process, not in the sandboxed speech or dictation worker.
   - No download, no network connection. FluidAudio's download code is linked into the app but is never called, and its offline switch is on.
   - Like the recognizer's input, the audio is discarded continuously. If the analysis falls behind, audio is dropped instead of collected (at most about 5 s in RAM).

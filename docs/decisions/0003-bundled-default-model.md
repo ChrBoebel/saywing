@@ -140,3 +140,7 @@ Residual risks the maintainer accepts:
 Unchanged: `clean_mac` stays `false` (publications remain beta builds under the documented
 exception), and the end of upstream Supertonic maintenance remains an explicit release
 decision.
+
+## Update 2026-11-04: voice model
+
+The review of 2026-10-25 did not cover the LS-EEND voice model. The maintainer decided separately to ship it and accepts its training-data risks; see [ADR 0008](0008-meeting-speakers-and-pdf.md).
