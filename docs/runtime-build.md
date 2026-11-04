@@ -191,10 +191,9 @@ runtimes:
   installed model without torch.
 - No `artifact_tool*`, `@oai`, `node_modules`, torch, numba, pip or Tcl/Tk in any output.
 
-**Not yet run:** a real MLX transcription with this runtime. MLX needs a Metal device,
-which the sandboxed build shell used here does not provide, so MLX itself was replaced by
-an import stub for the import-closure check above. Before release, run on an Apple Silicon
-Mac with a bundled app:
+**Verification, 2026-11-04 (real MLX transcription).** Run against the signed, notarized public release 0.1.30 (build 130, CDHash `a1a4d8e6…`), unmodified, on an Apple M4 Mac with 16 GB and macOS 26.6.2. The bundled Python ran `worker.py --model whisper-turbo` through `sandbox-exec` with the app's profile (byte-identical to the one in the signed binary) and the app's arguments and environment, driven by a script instead of the Swift app. Synthetic `say` clips (Anna de_DE and Samantha en_US, mono Float32 at 48 kHz) returned "Guten Morgen, das ist ein Test der lokalen Spracherkennung." and "Good morning. This is a test of local speech recognition." in all three runs, exit status 0. Load to `ready` took 2.1–2.7 s; the first request per process took 8.5–13 s (cause not established), later requests about 1.1 s with explicit language and about 2.2 s with auto-detect; peak memory footprint was about 1.4 GB. Metal use was observed: `Device(gpu, 0)` under the same profile, and the worker's own GPU client accumulated about 3 s of GPU time. `Tests/Dictation/integration_worker.py` passed 14/14 against the same runtime, including the denied network, write, spawn and outside-read checks and cancellation in 0.10 s. Not covered: the Swift app path, microphone audio, UI and paste, Intel, and the optional Whisper Large v3 and Qwen3-ASR models.
+
+To repeat the integration check on an Apple Silicon Mac with a bundled app (MLX needs a Metal device):
 
 ```sh
 python3 Tests/Dictation/integration_worker.py /path/Saywing.app/Contents/Resources/Dictation /tmp/saywing-check whisper-turbo

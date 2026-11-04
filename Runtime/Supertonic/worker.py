@@ -6,6 +6,7 @@ or dependency downloader is present. The parent owns cancellation and kills this
 single process; this worker never launches child processes or persists content.
 """
 import base64
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -17,21 +18,51 @@ import sys
 
 SAMPLE_RATE = 44100
 MAX_PACKET_FRAMES = 24000
+# As raised by Python, libc++ and the pinned ONNX Runtime. Only ever matched here, never sent.
+OUT_OF_MEMORY_MESSAGES = ("allocation failed", "failed to allocate", "out of memory", "bad_alloc", "bad allocation")
+
+
+class WorkerFailure(Exception):
+    """A fixed code for the parent. It holds no cause, message, path or request text."""
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+class RequestTooLong(ValueError):
+    pass
+
+
+@contextlib.contextmanager
+def failure_stage(code):
+    try:
+        yield
+    except WorkerFailure:
+        raise
+    except RequestTooLong:
+        raise WorkerFailure("too_long") from None
+    except Exception as error:
+        memory = isinstance(error, MemoryError) or any(text in str(error).lower() for text in OUT_OF_MEMORY_MESSAGES)
+        raise WorkerFailure("out_of_memory" if memory else code) from None
 
 
 def read_request(source, session=False):
     line = source.readline(64002)
     if session and not line:
         return None
-    if len(line) > 64001 or not line.endswith(b"\n"):
+    if len(line) > 64001:
+        raise RequestTooLong("Oversized request frame")
+    if not line.endswith(b"\n"):
         raise ValueError("Invalid request frame")
     request = json.loads(line)
     fields = {"text", "language", "id"} if session else {"text", "language"}
     if not isinstance(request, dict) or set(request) != fields:
         raise ValueError("Invalid fields")
     text, language = request["text"], request["language"]
-    if not isinstance(text, str) or not text.strip() or len(text) > 8000:
+    if not isinstance(text, str) or not text.strip():
         raise ValueError("Invalid text")
+    if len(text) > 8000:
+        raise RequestTooLong("Too many characters")
     if language not in ("de", "en"):
         raise ValueError("Invalid language")
     if session:
@@ -128,16 +159,18 @@ def load_speech_model(helper, model):
 
 
 def run(source, output, model, session=False):
-    request = read_request(source, session=session)
+    with failure_stage("invalid_request"):
+        request = read_request(source, session=session)
     if request is None:
         return
-    helper = load_verified_helper(model)
-    import numpy as np
+    with failure_stage("load_failed"):
+        helper = load_verified_helper(model)
+        import numpy as np
 
-    tts = load_speech_model(helper, model)
-    if tts.sample_rate != SAMPLE_RATE:
-        raise ValueError("Wrong model sample rate")
-    style = helper.load_voice_style([str(model / "voice_styles/M1.json")])
+        tts = load_speech_model(helper, model)
+        if tts.sample_rate != SAMPLE_RATE:
+            raise ValueError("Wrong model sample rate")
+        style = helper.load_voice_style([str(model / "voice_styles/M1.json")])
     while request is not None:
         text, language = request[:2]
         identity = request[2] if session else None
@@ -146,16 +179,19 @@ def run(source, output, model, session=False):
                 packet["id"] = identity
                 packet["protocol"] = 2
             send(output, packet)
-        # Per-text reproducibility must not depend on earlier queued text.
-        np.random.seed(42)
-        emit({"kind": "ready", "sampleRate": SAMPLE_RATE})
-        synthesize(source, emit, tts, style, text, language)
-        emit({"kind": "end"})
+        with failure_stage("synthesis_failed"):
+            # Per-text reproducibility must not depend on earlier queued text. A retry
+            # with a fresh worker relies on it to continue where the first one stopped.
+            np.random.seed(42)
+            emit({"kind": "ready", "sampleRate": SAMPLE_RATE})
+            synthesize(source, emit, tts, style, text, language)
+            emit({"kind": "end"})
         # Do not retain a user's prior text/PCM while waiting for another request.
         del text, language, request
         if not session:
             break
-        request = read_request(source, session=True)
+        with failure_stage("invalid_request"):
+            request = read_request(source, session=True)
 
 
 def synthesize(source, emit, tts, style, text, language):
@@ -189,9 +225,10 @@ def main():
         if (len(sys.argv) != 3 and not session) or sys.argv[1] != "--model":
             raise ValueError("Invalid arguments")
         run(sys.stdin.buffer, output, Path(sys.argv[2]).resolve(), session=session)
-    except Exception:
+    except Exception as error:
+        code = error.code if isinstance(error, WorkerFailure) else "invalid_request"
         try:
-            send(output, {"kind": "error"})
+            send(output, {"kind": "error", "code": code})
         except OSError:
             pass
         return 1

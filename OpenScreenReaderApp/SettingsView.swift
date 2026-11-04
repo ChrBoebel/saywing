@@ -388,6 +388,7 @@ struct SettingsView: View {
             Section {
                 Label("Text recognition, speech and dictation run on this Mac. Nothing is sent to a server.", systemImage: "lock.laptopcomputer")
                 Label("Additional dictation models are downloaded from Hugging Face only when you choose to install one.", systemImage: "arrow.down.circle")
+                Label("Saywing checks for updates over the internet. This sends no screen content, text or audio, and you can turn it off in General.", systemImage: "arrow.triangle.2.circlepath")
                 Label("Screenshots, recognized text and audio are never saved.", systemImage: "externaldrive.badge.xmark")
                 Label("Reading never touches the clipboard. Dictation uses it briefly to paste and then restores it.", systemImage: "doc.on.clipboard")
                 Label("A meeting transcript starts only after you confirm that everyone is informed. It hears your microphone and other apps, saves no audio and keeps the text in memory until you copy, save or discard it. macOS asks for system audio the first time.", systemImage: "person.2.wave.2")
@@ -558,6 +559,11 @@ struct ReadingErrorView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
+                case .reinstall:
+                    // Trying again cannot restore damaged files; the message is the next step.
+                    Button("Close") { model.closeErrorHelp() }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
                 case .retry:
                     Button("Try Again") {
                         model.closeErrorHelp()
