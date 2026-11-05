@@ -125,4 +125,18 @@ Public builds carry the DIHARD III variant (`dih3`, up to 10 speakers), by maint
 - Cost, one model in a standalone Release program: load 0.35 s cold, 0.03 s with CoreML's cache; about 1.1 % of real time on one core; about 8 to 16 MB of footprint for the model. Labels arrive a median of 0.92 s and at most 1.62 s after the audio. Two hours of three alternating readers (DIHARD III, 30 s turns) with network denied: 99.2 % correct overall and 99.2 % in the last quarter, 4 voices used, footprint flat (708 to 711 MB, almost all of it the program's own copy of the audio).
 - x86_64: the same real-model tests give the same results under Rosetta (real-time factor about 0.05 in a Debug build). No physical Intel Mac was measured.
 - A Hardened Runtime signature (ad hoc) with the app's entitlements loads and runs the model, and `codesign --verify --deep --strict` seals the `.mlmodelc`; no file in it is Mach-O. Developer ID signing and notarization with the model have not been run.
+- Speaker-split evaluation (2026-11-05, Apple M4, DIHARD III, [scripts/diarization-eval](../../scripts/diarization-eval/README.md)): 48 public-domain LibriVox readers (German and English, 12 per language and gender) and 16 macOS system voices, split by speaker into dev and test. 72 seeded conversations per split (2 to 5 speakers, turns of 10-20, 4-8 or 1.5-4 s, similar-voice pairs, up to about 9 % overlap, pauses), each clean at 8 kHz, clean at 48 kHz through the app's resampler, and as a call (300-3400 Hz, AAC at 20 kbit/s, noise at 25 dB SNR). The harness compiles the adapter itself and feeds it in 10 ms chunks. The test manifest was frozen before tuning.
+
+  | Test split, current adapter | Correct | Exact voice count |
+  |---|---:|---:|
+  | 2-3 readers, no similar pair | 91.5 % | 78 % |
+  | 2-3 readers, all | 87.8 % | 70 % |
+  | 4-5 readers | 82.8 % | 41 % |
+  | Similar pair, any count | 81.3 % | 51 % |
+  | System voices | 79.5 % | 64 % |
+  | Turns of 1.5-4 s | 73.1 % | 27 % |
+  | All 216 runs (dev: 89.7 %, 71 %) | 84.2 % | 57 % |
+
+  None of the targets is met (2-3 speakers 95 % and exact count in 90 %; 4-5 speakers and similar voices 85 %). Label lag stays at a median of 0.91 s (90th percentile 1.51 s), real-time factor about 0.016. Most of the error is voices the model merges: on test, 10.7 of 15.9 points of wrong time lie in turns of readers who got no voice of their own, also across genders. Post-processing of the model output (one voice per frame, smoothing, hysteresis, a minimum speech time before a voice appears) moved dev results by -2.8 to +0.5 points, because the model's probabilities are almost binary. A noise floor under digital silence raised dev from 89.7 % to 92.0 % but held only partly on test (84.2 % to 84.5 %, call audio worse), so it was not shipped. Telling merged voices apart needs more than post-processing of this model; that is a model limit, not a tuning gap.
+- The evaluation also found that CoreML without a writable cache folder falls back to a CPU path whose output differs between processes; in about one process of four every reader became one voice. With the cache, repeated runs were bit-identical. The app has its cache folder; the real-model tests and the harness must run where CoreML can write it.
 - Not verified: real calls, the gates below, CPU next to both recognisers, a signed app with the model running a live transcript, and a per-process trace of file writes. The disk check compares folders: the app's caches after loading, FluidAudio's folder, and audio files in the temporary folder, which other processes share.
