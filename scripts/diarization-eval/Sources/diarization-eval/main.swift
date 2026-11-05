@@ -151,6 +151,10 @@ while index + 1 < CommandLine.arguments.count {
   arguments[CommandLine.arguments[index]] = CommandLine.arguments[index + 1]
   index += 2
 }
+if let modelPath = arguments["--model"], let audioPath = arguments["--probe"] {
+  try probe(audio: audioPath, modelURL: URL(fileURLWithPath: modelPath), chunks: Int(arguments["--chunks"] ?? "") ?? 400)
+  exit(0)
+}
 if let modelPath = arguments["--model"], let audioPath = arguments["--diagnose"] {
   try diagnose(audio: audioPath, model: try LSEENDModel(modelURL: URL(fileURLWithPath: modelPath), computeUnits: .cpuOnly))
   exit(0)

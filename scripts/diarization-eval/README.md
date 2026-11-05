@@ -53,13 +53,12 @@ swift build -c release --scratch-path $W/build
 python3 evaluate.py --work $W --split dev --label baseline --model <ls_eend_dih3_100ms.mlmodelc>
 ```
 
-**Run the harness in a normal shell.** When CoreML cannot create its cache folder
+**Run the harness in a normal shell.** When CoreML cannot write its cache folder
 (`~/Library/Caches/diarization-eval`, for example inside a sandboxed shell), it
-falls back to another CPU path whose output differs between processes: the same
-audio gave different voices from one run to the next, and about one process in
-four heard everyone as one voice. With a writable cache, repeated runs were
-bit-identical. `--diagnose <wav>` prints checksums of the features and the model
-output to check this. The app has a writable cache folder.
+falls back to another CPU path that gives wrong voices; see "CoreML's cache" below.
+With a writable cache, repeated runs are bit-identical. `--diagnose <wav>` prints
+checksums of the features and the model output; `--probe <wav>` compares
+FluidAudio's in-place state with separate state in one process.
 
 To check that a local corpus matches the committed one, compare `$W/*.json` with
 `manifests/` (the manifests store the SHA-256 of every speaker file). `evaluate.py`
@@ -145,5 +144,72 @@ counts for 2-3 readers fell from 78 % to 72 %. It was therefore not shipped. The
 gain was likely inflated by choosing the best of several variants on a model whose
 output reacts strongly to small input changes.
 
+**Other model variants** (2026-11-06, dev split only, all 216 runs, same harness and
+adapter; correct / exact):
+
+| Group | DIHARD III (shipped) | CALLHOME | AMI |
+|---|---:|---:|---:|
+| All runs | 89.7 / 71 | 90.1 / 72 | 79.9 / 51 |
+| Readers, 2-3, no similar pair | 95.2 / 87 | 97.1 / 94 | 91.5 / 81 |
+| Readers, 2-3, similar pair | 93.2 / 81 | 91.7 / 75 | 81.8 / 78 |
+| Readers, 4-5 | 90.5 / 63 | 89.2 / 61 | 78.4 / 29 |
+| Similar pair, any count | 91.3 / 68 | 88.0 / 60 | 80.1 / 54 |
+| System voices | 76.7 / 58 | 80.3 / 64 | 64.0 / 33 |
+| Turns 1.5-4 s | 88.0 / 60 | 89.3 / 70 | 74.6 / 43 |
+| clean8 / clean48 / call48 | 89.0 / 88.6 / 91.4 | 89.3 / 89.1 / 92.0 | 78.1 / 77.2 / 84.9 |
+| Exact, clean8 / clean48 / call48 | 68 / 65 / 81 | 62 / 64 / 90 | 49 / 49 / 56 |
+| Coverage of voiced speech | 94.5 | 97.2 | 96.1 |
+| Lag median / 90th percentile (s) | 0.91 / 1.51 | 0.91 / 1.51 | 0.91 / 1.51 |
+| Real-time factor, median | 0.0169 | 0.0159 | 0.0155 |
+
+AMI is worse everywhere and finds too few voices in 48 % of runs. CALLHOME is
+mixed: better with 2-3 distinct readers, system voices, short turns and call audio,
+worse with similar voices (-3.3 points, exact count 60 % instead of 68 %) and 4-5
+readers. Per run it was better than DIHARD III in 61 runs and worse in 67 (by more
+than 1 point). No variant beat DIHARD III by 3 points across the main groups, so the
+last test-split run was not spent on one. The real-time factors of CALLHOME and AMI
+were measured while other work ran on the machine (90th percentile 0.021-0.023).
+
 Test-split runs: `baseline` and `floorbg`, both with manifest SHA-256
 `31fc09f3…eefdd2ba1`. The third allowed run was not used.
+
+## CoreML's cache
+
+FluidAudio's `LSEENDModel` binds every recurrent state output (`enc_kv_new`, ...)
+to the very array it passes as the matching input (`enc_kv`, ...), so the model
+updates its state in place. CoreML normally runs the model through a compiled
+bundle it writes to `~/Library/Caches/<bundle id or process name>/com.apple.e5rt.e5bundlecache/<macOS build>/`
+(43 MB per model). That path handles the aliasing. When the bundle cannot be
+written, CoreML prints `E5RT encountered an STL exception` and runs another CPU
+path, which does not: the speaker probabilities depend on the process. The same
+model with separate, fed-back state gives the right answer on that path too
+(`--probe`: in-place 5969.98 or 5987.43, separate 5929.94, with the cache 5929.94).
+
+Reproduce without a sandbox: CoreML follows `CFFIXED_USER_HOME`.
+
+```sh
+mkdir -p /tmp/claude/rohome/Library/Caches && chmod 555 /tmp/claude/rohome/Library/Caches
+CFFIXED_USER_HOME=/tmp/claude/rohome .../diarization-eval --model <mlmodelc> --probe <wav>
+```
+
+Measured (2026-11-06, Apple M4, macOS build 25G83), six 3-reader dev conversations,
+clean8, one process per run: with the cache, 18 of 18 processes gave identical
+spans; without it, 60 of 60 processes gave wrong voices, in two or three discrete
+outcomes per conversation (5 voices and 59-93 % correct, or 3-4 voices and 35-47 %
+correct; 61.5 % mean against 98.2 %). None collapsed to one voice here; the earlier
+sandboxed runs did in about one process of four.
+
+| Cache state | Result |
+|---|---|
+| `Library/Caches` or `<name>` or `com.apple.e5rt.e5bundlecache` not writable, cold | fallback, wrong |
+| Disk full (8 MB volume, 0.8 MB free) | fallback, wrong |
+| Warm cache, then made read-only | fine (bundle reused) |
+| Warm cache whose bundle files were deleted, folders kept | fine (rebuilt) |
+| Cache deleted while a process runs, or between loads | fine (rebuilt at next load) |
+
+A read-only warm cache only lasts until the key changes: a new macOS build or a
+model at a new place needs a new 43 MB bundle. A proposed app-side guard compares,
+at load, two seconds of synthetic voices through the in-place path and through a
+second copy of the model with separate state (bit-identical with the cache, 0.16 to
+0.46 apart without it, for all three variants) and reports the model unavailable
+when they differ; it is kept outside this folder until the app adopts it.
