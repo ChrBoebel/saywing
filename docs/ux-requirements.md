@@ -223,11 +223,21 @@ Project decision ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)).
 - **Voices:**
   - When Saywing tells the others' voices apart, their turns are labelled "Speaker 1", "Speaker 2" and so on ("Person 1", "Person 2" in German), numbered in the order of their first words.
   - A calm color mark precedes the label. The color only helps scanning; the label says who is speaking.
-  - Clicking the label opens "Rename…" (a dialog with a name field) and "Same Person As ▸" (merge, when one person was heard as two voices).
-  - Names apply immediately to every turn and to the export. A change counts as unsaved.
+  - Clicking the label opens a menu:
+    - "Rename…" (a dialog with a name field);
+    - "Same Person As ▸" (merge, when one person was heard as two voices);
+    - after a separator, "Different Person ▸" (2026-11-06), for one turn the model gave the wrong voice, most often because it heard two similar voices as one. It lists the other voices and "New Person (Speaker 3)" ("Neue Person (Person 3)"), with the next free number.
+  - "Different Person" moves only that turn, meaning its words, to the chosen voice; the rest of the old voice stays. The correction holds for that stretch of time: voices the model reports later do not undo it, and words the recognizer finishes there later follow it. A new person keeps its number; voices heard later count on after it. It can be renamed and merged like any voice.
+  - Numbers never change through a merge or a moved turn: a voice keeps the number of its first words, even after those words were moved.
+  - Names, merges and moved turns apply immediately to every turn and to the export (Markdown, text, PDF). Each change counts as unsaved.
+  - A turn holds everything one voice said until someone else spoke. When the model heard two people as one voice and nobody else spoke in between, both are in one turn; "Different Person" moves the whole turn.
   - Voices appear only in builds that carry the model: public builds from the next release on.
-  - Without a model or after an error, the turns stay "Others"; an error during recording is mentioned once in the footer.
-  - The label follows the speech by about one second. Similar voices can be heard as one; "Same Person As" fixes only the opposite case.
+  - Telling voices apart is experimental. The first time a voice appears in a transcript, the footer says once: "Voices are told apart automatically and may be mixed up. Click a name to correct it." ("Stimmen werden automatisch unterschieden und können verwechselt werden. Klicke auf einen Namen, um ihn zu korrigieren."). No dialog, no repeat per turn; a warning takes precedence over it in the footer.
+  - Without a model, the turns stay "Others" and the footer says once, when the others first speak: "The others' voices are not told apart in this transcript." An error during recording is mentioned once in the footer instead.
+  - After a recording, a footer note gets its own line above the buttons so it is not cut off.
+  - The label's accessibility hint names all three actions; the menu items are plain text buttons that VoiceOver and full keyboard access reach like any menu.
+  - The label follows the speech by about one second.
+  - The color of a voice follows its number, so a new person never shares the color of the voice next to it.
 - **Saving:**
   - The save dialog has a "Format:" menu with PDF (preselected), Markdown and plain text. Switching changes the file extension in the name field.
   - Nothing is remembered between two saves.

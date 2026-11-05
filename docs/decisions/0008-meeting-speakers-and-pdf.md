@@ -30,22 +30,24 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 3. **Names come only from the user.**
    - A click on a speaker label renames that voice in every turn and in the export.
    - Two voices can be merged when the model split one person.
-   - Names and merges live only in memory with the transcript.
+   - One turn can be given to another voice or to a new person when the model heard two people as one (added 2026-11-06, after the speaker-split evaluation below showed that most errors are merged voices and that post-processing cannot split them). The correction is a time range and a voice; it wins over every span the model reports for that range, then or later.
+   - Names, merges and corrected turns live only in memory with the transcript.
 4. **No voice profiles.**
    - Saywing never stores speaker embeddings or attractors.
    - It never recognises a person across meetings and never tries to identify anyone.
    - Model state dies with the transcript.
 5. **Assignment.**
-   - Recognised words carry audio time ranges. Each word of "Others" goes to the voice that spoke most during it.
+   - Recognised words carry audio time ranges. Each word of "Others" goes to the voice that spoke most during it, unless the user gave that moment to a voice by hand.
    - A change of voice starts a new turn.
    - Words without a voice stay "Others".
-6. **Fallback.** If the model is missing or fails, the transcript works as before with "Others". The window says once that voices are not told apart.
+6. **Fallback.** If the model is missing or fails, the transcript works as before with "Others". The window says once that voices are not told apart: without a model when the others first speak, after a failure in the failure notice.
 7. **PDF export.**
    - Save offers PDF (first), Markdown and plain text.
    - The PDF is laid out on A4 with Core Text.
    - It is tagged (heading and paragraphs) so screen readers can follow it.
    - Its document info holds only the title and "Saywing".
    - Writing still happens only through the explicit save panel.
+8. **Honest labels** (added 2026-11-06). Telling voices apart is experimental. The first time a voice appears in a transcript, the footer says once, without a dialog, that voices are told apart automatically, may be mixed up, and can be corrected with a click on a name.
 
 ## Model and code
 
@@ -69,6 +71,7 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 - On the first load, CoreML writes a compiled form of the model (about 43 MB, derived only from the model) to `~/Library/Caches/<bundle id>/com.apple.e5rt.e5bundlecache`, one copy per model path and macOS build: loading the same model from a second path added another 43 MB, and Saywing does not remove old copies. It appears during loading only; the session adds nothing to it and writes no audio or voice state.
 - Diarisation costs CPU next to the two speech transcribers. It must be measured in the 60-minute gate of ADR 0006.
 - The project's own LS-EEND documentation states recordings up to one hour. Transcripts may run two hours; the second hour must be checked in the gate.
+- Correcting the model is manual. The window offers "Rename…", "Same Person As ▸" (merge two voices) and "Different Person ▸" (move one turn to another voice or a new person). A turn holds all words of one voice until someone else speaks, so two people the model merged who speak back to back stay one turn and move together.
 - Speaker voices are biometric data under GDPR Art. 9 as soon as they are used to identify someone. Saywing does not identify anyone, keeps nothing, and the user names voices by hand. This belongs in the legal review that ADR 0006 already makes a release gate.
 
 ## Model decision — 2026-11-04
@@ -95,7 +98,7 @@ Public builds carry the DIHARD III variant (`dih3`, up to 10 speakers), by maint
 
 ## Verification so far
 
-- Unit tests cover voice assignment, numbering, renaming and merging, the voice tracker's queueing and late-result handling, the save panel's format menu, and the Markdown, text and PDF export. One test runs synthetic speech of three voices through Apple's recognizer and the voice tracker, with a stand-in diarizer that knows who spoke, and checks that a named voice reaches the saved PDF.
+- Unit tests cover voice assignment, numbering, renaming, merging and moving one turn (to another voice, to a new person, against later spans, with merges and names, in every export format), the one-time notes about voices, the voice tracker's queueing and late-result handling, the save panel's format menu, and the Markdown, text and PDF export. One test runs synthetic speech of three voices through Apple's recognizer and the voice tracker, with a stand-in diarizer that knows who spoke, and checks that a named voice reaches the saved PDF.
 - Echo on "Me" (found in a call over laptop speakers, 2026-10-21): a segment of "Me" now counts as an echo when at least three of its words with three or more letters exist and 60 % of them sound like words the others said at the same moment. The signal threshold of the echo gate is now 0.12, measured with synthetic speech in a simulated room: different voices reached at most 0.085, a quiet, reverberant, distorted echo at least 0.14. A real room measurement with laptop speakers and microphone is still open.
 - Adapter (2026-11-04, Apple M4 unless noted): `LSEENDMeetingDiarizer` keeps one resampler per stream, because FluidAudio's `sourceSampleRate:` restarts its converter on every chunk. It keeps no frames or segments and reports a voice still speaking once a second. The tracker releases it on finish, cancel and failure. A model that will not load reports through the existing "no longer told apart" path.
 - The opt-in test suite (`TEST_RUNNER_SAYWING_DIARIZATION_MODELS=<folder>`) uses the committed fixtures, A-B-A with 28.9 s of two readers, one female, one male, read speech at the model's own 8 kHz: both readers got their own voice in all three variants, with 100 % of attributed time correct. Time attributed: AMI 95 %, CALLHOME 88 %, DIHARD III 86 %. The same audio at 48 kHz through the tracker gave the same result.
