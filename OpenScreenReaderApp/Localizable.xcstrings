@@ -5120,6 +5120,16 @@
           }
         }
       }
+    },
+    "The voice model could not be prepared reliably. Free some disk space and start again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Stimmmodell konnte nicht zuverlässig vorbereitet werden. Gib etwas Speicherplatz frei und starte erneut."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

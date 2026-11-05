@@ -100,3 +100,12 @@ func probe(audio path: String, modelURL: URL, chunks: Int) throws {
   line.append(String(format: "split %.6f/%d", sum, high))
   print(line.joined(separator: " "))
 }
+
+/// The app's own check (when the adapter carries it): prints the difference and its cost.
+func stateCheck(modelURL: URL, seconds audioSeconds: Double) throws {
+  let model = try LSEENDModel(modelURL: modelURL, computeUnits: .cpuOnly)
+  let clock = ContinuousClock()
+  var difference: Float = 0
+  let took = try clock.measure { difference = try LSEENDStateCheck.difference(model: model, modelURL: modelURL, seconds: audioSeconds) }
+  print(String(format: "check difference %.6f seconds %.3f", difference, seconds(took)))
+}
