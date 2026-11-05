@@ -53,6 +53,14 @@ swift build -c release --scratch-path $W/build
 python3 evaluate.py --work $W --split dev --label baseline --model <ls_eend_dih3_100ms.mlmodelc>
 ```
 
+**Run the harness in a normal shell.** When CoreML cannot create its cache folder
+(`~/Library/Caches/diarization-eval`, for example inside a sandboxed shell), it
+falls back to another CPU path whose output differs between processes: the same
+audio gave different voices from one run to the next, and about one process in
+four heard everyone as one voice. With a writable cache, repeated runs were
+bit-identical. `--diagnose <wav>` prints checksums of the features and the model
+output to check this. The app has a writable cache folder.
+
 To check that a local corpus matches the committed one, compare `$W/*.json` with
 `manifests/` (the manifests store the SHA-256 of every speaker file). `evaluate.py`
 refuses a manifest whose hash changed and logs every run on the test split in
