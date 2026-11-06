@@ -170,7 +170,7 @@ def build_readers(work, corpus):
             'seconds': round(len(read_wav(wav)) / RATE, 1)}
         corpus.append(entry)
         known.add(speaker_id)
-        print(f"{speaker_id} {language} {gender} F0 {f0:.0f} {reader['reader']}: {section['title']}", flush=True)
+        print(f"{speaker_id} {language}: {section['title']}", flush=True)
         save(work, corpus)
 
 
@@ -214,7 +214,7 @@ def build_say(work, corpus):
             'text': SAY_TEXT[language].name, 'wav': wav.name, 'wav_sha256': sha256(wav),
             'seconds': round(len(samples) / RATE, 1)}
         corpus.append(entry)
-        print(f'{speaker_id} {locale} {entry["gender"]} F0 {f0:.0f}', flush=True)
+        print(f'{speaker_id} {locale}', flush=True)
         save(work, corpus)
 
 
