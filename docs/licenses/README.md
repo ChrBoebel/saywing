@@ -8,10 +8,14 @@ This folder holds the original license texts and notices for third-party softwar
 - [`Supertonic-3-Open-RAIL-M.txt`](Supertonic-3-Open-RAIL-M.txt) — the unchanged BigScience Open RAIL-M license of the Supertonic 3 model and voice styles.
 - [`DMG-README.txt`](DMG-README.txt) — the `README.txt` in every DMG's `Licenses` folder; it limits Apache-2.0 to the source code and points to the model terms.
 
+## Meeting voice model
+
+- [`Nemotron-3-Diarization-OpenMDW-1.1.txt`](Nemotron-3-Diarization-OpenMDW-1.1.txt) — the OpenMDW License Agreement 1.1 of NVIDIA's Nemotron 3 Diarization and its CoreML conversion by Fluid Inference, with the notices of origin and the training data as NVIDIA lists them. Only builds that carry the model ship it, as `Diarization/LICENSE-Nemotron-3-Diarization.txt`; the notice index then names the model ([ADR 0008](../decisions/0008-meeting-speakers-and-pdf.md)).
+
 ## Application and runtime components
 
 - [`Sparkle-2.10.0.txt`](Sparkle-2.10.0.txt) — Sparkle 2.10.0 update framework license and bundled dependency notices.
-- [`FluidAudio-0.18.2.txt`](FluidAudio-0.18.2.txt) — licenses of the FluidAudio code linked with only its `Diarizer` trait: FluidAudio and VBx (Apache-2.0), fastcluster (BSD 2-Clause). The separate LS-EEND model and its notice ([`../../Runtime/Diarization/LICENSE-LS-EEND.txt`](../../Runtime/Diarization/LICENSE-LS-EEND.txt)) reach only builds that carry the model ([ADR 0008](../decisions/0008-meeting-speakers-and-pdf.md)).
+- [`FluidAudio-0.18.2.txt`](FluidAudio-0.18.2.txt) — licenses of the FluidAudio code linked with only its `Diarizer` trait: FluidAudio and VBx (Apache-2.0), fastcluster (BSD 2-Clause). The separate meeting voice model reaches only builds that carry it (see below).
 - [`Python-3.12.15/`](Python-3.12.15/) — CPython 3.12.15 license texts and provenance for the Apple Silicon runtimes.
 - [`Python-3.12.15-Intel/`](Python-3.12.15-Intel/) — CPython 3.12.15 license texts and provenance for the Intel runtimes.
 - [`GCC-13.4.0/`](GCC-13.4.0/) — GCC 13.4.0 runtime library licenses (GPL-3.0 with the GCC Runtime Library Exception, LGPL-2.1 for libquadmath).

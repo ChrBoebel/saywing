@@ -121,6 +121,19 @@ def require_release_approval(path, architecture='arm64'):
         raise ValueError('Public release gates remain open: ' + ', '.join(missing))
 
 
+def require_voice_model_approval(path, manifest_path=None):
+    """A public build carries the meeting voice model only with a maintainer license decision for
+    exactly that model and revision (ADR 0008). The general license_review gate predates it."""
+    manifest = json.loads((manifest_path or REPO / 'Runtime/Diarization/nemotron-3-manifest.json').read_text())
+    decision = json.loads(Path(path).read_text()).get('voice_model_license_review', {})
+    if not (isinstance(decision, dict) and decision.get('approved') is True
+            and decision.get('model') == manifest['model'] and decision.get('revision') == manifest['revision']
+            and isinstance(decision.get('note'), str) and decision['note'].strip()):
+        raise ValueError('The voice model ' + manifest['model'] + ' (revision ' + manifest['revision'] + ') has no '
+                         'maintainer license decision in the release approval; record one or turn '
+                         'SAYWING_BUNDLE_DIARIZATION_MODEL off (ADR 0008)')
+
+
 def contained(root, relative):
     path = root / relative
     if Path(relative).is_absolute() or '..' in Path(relative).parts or not path.resolve(strict=True).is_relative_to(root.resolve()):
@@ -297,6 +310,8 @@ def main():
     if args.public_release:
         target = release_target(args.architecture)
         require_release_approval(target['approval'], args.architecture)
+        if args.diarization_model:
+            require_voice_model_approval(target['approval'])
         if args.download_url_prefix.rstrip('/') != target['url_prefix'] or args.feed_url != target['url_prefix'] + '/appcast.xml':
             raise ValueError('Public release URLs do not match its architecture')
         if not args.notarize:
