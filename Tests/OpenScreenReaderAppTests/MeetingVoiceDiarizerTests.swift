@@ -161,6 +161,17 @@ struct MeetingVoiceBundleTests {
         #expect(failures.messages.count == 1)
         #expect(failures.messages.first?.isEmpty == false)
     }
+
+    /// The state check compares two runs of the same input, so the input must be
+    /// fixed and must carry sound that moves the model's state.
+    @Test
+    func theStateCheckSignalIsFixedAndAudible() {
+        let signal = LSEENDStateCheck.syntheticVoices(rate: 8_000, seconds: 2)
+        #expect(signal == LSEENDStateCheck.syntheticVoices(rate: 8_000, seconds: 2))
+        #expect(signal.count == 16_000)
+        let rms = (signal.reduce(0) { $0 + $1 * $1 } / Float(signal.count)).squareRoot()
+        #expect(rms > 0.05 && rms < 0.5)
+    }
 }
 
 private final class FailureBox: @unchecked Sendable {
@@ -422,6 +433,16 @@ struct RealVoiceModelTests {
         #expect(score.share >= requiredShare, "\(model.variant): \(score)")
         #expect(feedSeconds / track.duration < 0.5, "must keep up with live audio next to two recognisers")
         #expect(spans.allSatisfy { $0.end <= track.duration + 0.001 })
+    }
+
+    /// With CoreML's cache, FluidAudio's in-place state is exact, so the check that
+    /// keeps the adapter off CoreML's other CPU path must pass here. Without the cache
+    /// it fails; that needs a fresh process, see scripts/diarization-eval/README.md.
+    @Test(arguments: RealVoiceModel.available)
+    func theInPlaceStateMatchesSeparateState(model: RealVoiceModel) throws {
+        let difference = try LSEENDStateCheck.difference(modelURL: model.url)
+        print("VOICE-MODEL state check \(model.variant): \(difference)")
+        #expect(difference <= LSEENDStateCheck.tolerance)
     }
 
     /// The production path: 48 kHz chunks of 10 ms through the tracker's queue.

@@ -221,7 +221,7 @@ Setup additionally saves the dictation shortcut, optional Fn setting and the mod
 - **No voice profiles:**
   - Saywing stores no voice characteristics and does not recognize anyone across transcripts.
   - The model state ends with the transcript.
-  - Only the user assigns names, by hand. Like merges, they live only in RAM with the transcript.
+  - Only the user assigns names, by hand. Like merges and turns moved to another voice or a new person, they live only in RAM with the transcript and end with it. A correction stores only a time range and a voice number, nothing about the voice itself.
 - **PDF:**
   - Save offers PDF, Markdown and plain text, still only through the save dialog.
   - The PDF's document information holds only the title and "Saywing": no author, device or user name.

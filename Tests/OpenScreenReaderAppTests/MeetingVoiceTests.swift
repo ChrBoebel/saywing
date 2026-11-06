@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 import Testing
 @testable import OpenScreenReader
 
@@ -169,6 +170,145 @@ struct MeetingVoiceTests {
         #expect(transcript.voiceSpans.allSatisfy { $0.end - $0.start <= 30 })
         transcript.apply(others(80, 82, "Spaet im Monolog."))
         #expect(transcript.entries.map(\.voice) == [0])
+    }
+}
+
+/// One turn the diarizer gave the wrong voice, moved by hand. The model often hears
+/// two similar voices as one, and nothing after the model can split them.
+@Suite("Meeting turn corrections")
+struct MeetingTurnCorrectionTests {
+    /// Speaker 1 says A and C, Speaker 2 says B.
+    private func threeTurns() -> MeetingTranscript {
+        var transcript = MeetingTranscript()
+        transcript.addVoice(voice(0, 0, 2))
+        transcript.addVoice(voice(1, 3, 5))
+        transcript.addVoice(voice(0, 6, 8))
+        transcript.apply(others(0, 2, "A."))
+        transcript.apply(others(3, 5, "B."))
+        transcript.apply(others(6, 8, "C."))
+        return transcript
+    }
+
+    @Test
+    func aTurnMovesToAnotherVoiceAndTheRestOfItsVoiceStays() {
+        var transcript = threeTurns()
+        transcript.reassign(transcript.entries[2], to: 1)
+        #expect(transcript.entries.map(\.text) == ["A.", "B. C."])
+        #expect(transcript.entries.map(\.label) == ["Speaker 1", "Speaker 2"])
+        // Moving the first words of a voice does not renumber anyone.
+        transcript.reassign(transcript.entries[0], to: 1)
+        #expect(transcript.entries.map(\.text) == ["A. B. C."])
+        #expect(transcript.entries.map(\.label) == ["Speaker 2"])
+        #expect(transcript.voices.map(\.label) == ["Speaker 2"])
+    }
+
+    @Test
+    func onlyTheWordsOfTheTurnMoveWhenASegmentHoldsTwoVoices() {
+        var transcript = MeetingTranscript()
+        transcript.apply(others(0, 6, "Ist das freigegeben? Ja, seit Dienstag.", words: [
+            ("Ist", 0, 0.3), ("das", 0.3, 0.6), ("freigegeben", 0.6, 1.4), ("?", 1.4, 1.5),
+            ("Ja", 3, 3.3), (",", 3.3, 3.35), ("seit", 3.4, 3.8), ("Dienstag", 3.8, 4.5), (".", 4.5, 4.55),
+        ]))
+        transcript.addVoice(voice(0, 0, 1.6))
+        transcript.addVoice(voice(1, 2.9, 4.7))
+        // A turn knows where its words end, not only where they start.
+        #expect(transcript.entries.map(\.start) == [0, 3])
+        #expect(transcript.entries.map(\.end) == [1.5, 4.55])
+        transcript.reassignToNewPerson(transcript.entries[0])
+        #expect(transcript.entries.map(\.text) == ["Ist das freigegeben?", "Ja, seit Dienstag."])
+        #expect(transcript.entries.map(\.label) == ["Speaker 3", "Speaker 2"])
+        transcript.reassign(transcript.entries[1], to: transcript.entries[0].voice!)
+        #expect(transcript.entries.map(\.text) == ["Ist das freigegeben? Ja, seit Dienstag."])
+        #expect(transcript.entries.map(\.label) == ["Speaker 3"])
+    }
+
+    @Test
+    func aNewPersonTakesTheNextFreeNumberAndKeepsIt() {
+        var transcript = threeTurns()
+        #expect(transcript.newPersonLabel == "Speaker 3")
+        transcript.reassignToNewPerson(transcript.entries[2])
+        #expect(transcript.entries.map(\.label) == ["Speaker 1", "Speaker 2", "Speaker 3"])
+        #expect(transcript.voices.map(\.label) == ["Speaker 1", "Speaker 2", "Speaker 3"])
+        #expect(transcript.newPersonLabel == "Speaker 4")
+        // A voice the model hears later gets the next number, not the new person's.
+        transcript.addVoice(voice(5, 9, 10))
+        transcript.apply(others(9, 10, "D."))
+        #expect(transcript.entries.map(\.label) == ["Speaker 1", "Speaker 2", "Speaker 3", "Speaker 4"])
+        // The new person is a voice like the others: it can be named.
+        let newPerson = transcript.entries[2].voice!
+        transcript.rename(voice: newPerson, to: "Clara")
+        #expect(transcript.entries.map(\.label) == ["Speaker 1", "Speaker 2", "Clara", "Speaker 4"])
+        #expect(transcript.newPersonLabel == "Speaker 5")
+    }
+
+    @Test
+    func aCorrectionWinsOverVoicesTheModelReportsLater() {
+        var transcript = MeetingTranscript()
+        transcript.addVoice(voice(0, 0, 2))
+        transcript.apply(others(0, 2, "Hallo zusammen."))
+        transcript.reassignToNewPerson(transcript.entries[0])
+        let corrected = transcript.entries[0].voice
+        // The diarizer's look-ahead reports that stretch again, and a new one after it.
+        transcript.addVoice(voice(0, 0, 2))
+        transcript.addVoice(voice(3, 0.5, 1.8))
+        transcript.addVoice(voice(0, 2.2, 4))
+        transcript.apply(others(2.2, 4, "Ich fange an."))
+        #expect(transcript.entries.map(\.voice) == [corrected, 0])
+        #expect(transcript.entries.map(\.label) == ["Speaker 2", "Speaker 1"])
+        // Text the recogniser finishes later inside the corrected stretch follows it too.
+        transcript.apply(others(1.2, 1.9, "Kurz.", final: false))
+        #expect(transcript.entries.first?.pending == "Kurz.")
+        #expect(transcript.entries.first?.voice == corrected)
+    }
+
+    @Test
+    func correctionsWorkWithMergesAndNames() {
+        var transcript = MeetingTranscript()
+        transcript.addVoice(voice(0, 0, 2))
+        transcript.addVoice(voice(1, 3, 5))
+        transcript.addVoice(voice(2, 6, 8))
+        transcript.apply(others(0, 2, "A."))
+        transcript.apply(others(3, 5, "B."))
+        transcript.apply(others(6, 8, "C."))
+        transcript.reassign(transcript.entries[2], to: 1)
+        transcript.rename(voice: 1, to: "Ben")
+        #expect(transcript.entries.map(\.label) == ["Speaker 1", "Ben"])
+        #expect(transcript.entries.map(\.text) == ["A.", "B. C."])
+        transcript.merge(voice: 1, into: 0)
+        #expect(transcript.entries.map(\.text) == ["A. B. C."])
+        #expect(transcript.entries.map(\.label) == ["Speaker 1"])
+        // A new person can be joined with a voice, and a merged voice can be the target.
+        transcript.reassignToNewPerson(transcript.entries[0])
+        #expect(transcript.entries.map(\.label) == ["Speaker 4"])
+        transcript.merge(voice: transcript.entries[0].voice!, into: 1)
+        #expect(transcript.entries.map(\.label) == ["Speaker 1"])
+    }
+
+    @Test
+    func myTurnsAndUnvoicedTurnsCannotBeMoved() {
+        var transcript = MeetingTranscript()
+        transcript.apply(me(0, 1, "Ich."))
+        transcript.apply(others(2, 3, "Jemand."))
+        let before = transcript
+        transcript.reassignToNewPerson(transcript.entries[0])
+        transcript.reassign(transcript.entries[1], to: 0)
+        #expect(transcript == before)
+    }
+
+    @Test
+    func correctionsReachEveryExportFormat() throws {
+        var transcript = threeTurns()
+        transcript.reassignToNewPerson(transcript.entries[2])
+        transcript.rename(voice: transcript.entries[2].voice!, to: "Clara")
+        transcript.apply(me(9, 10, "Danke."))
+        let export = MeetingExport(transcript: transcript, title: "T", duration: 10)
+        #expect(export.turns.map(\.speaker) == ["Speaker 1", "Speaker 2", "Clara", "Me"])
+        #expect(export.speakers == ["Speaker 1", "Speaker 2", "Clara", "Me"])
+        #expect(export.markdown.contains("**Clara** · 00:00:06\nC."))
+        #expect(export.plainText.contains("Clara · 00:00:06\nC."))
+        let text = try #require(PDFDocument(data: try export.data(as: .pdf))?.string)
+        #expect(text.contains("Clara"))
+        #expect(text.contains("C."))
     }
 }
 

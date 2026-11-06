@@ -312,11 +312,14 @@ private struct MeetingTranscriptView: View {
           ForEach(controller.transcript.entries) { entry in
             MeetingTurn(
               entry: entry, voices: controller.transcript.voices,
+              newPersonLabel: controller.transcript.newPersonLabel,
               rename: { voice in
                 newName = voice.label
                 renaming = voice
               },
-              merge: { controller.mergeVoice($0.voice, into: $1.voice) })
+              merge: { controller.mergeVoice($0.voice, into: $1.voice) },
+              reassign: { controller.reassignTurn(entry, to: $0.voice) },
+              reassignToNewPerson: { controller.reassignTurnToNewPerson(entry) })
               .id(entry.id)
               .transition(reduceMotion ? .identity : .opacity)
           }
@@ -349,35 +352,40 @@ private struct MeetingTranscriptView: View {
   }
 
   private var footer: some View {
-    HStack(spacing: 10) {
-      switch controller.phase {
-      case .starting, .live:
-        if let notice = controller.notice {
-          Text(notice).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-        }
-        Spacer()
-        // ⌘. is the Mac's stop; Return stays harmless while the window has focus.
-        Button("Stop") { controller.stop() }
-          .buttonStyle(.borderedProminent)
-          .keyboardShortcut(".", modifiers: .command)
-      case .stopping:
-        Spacer()
-      default:
-        // Leaving this transcript on the left, keeping it on the right.
-        Button("Discard", role: .destructive) { controller.requestDiscard() }
-        Button("New Transcript") { Task { await controller.startNew() } }
-        Spacer()
-        if let notice = controller.notice {
-          Text(notice).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-        }
-        Confirmable(title: "Copy", confirmation: "Copied") { controller.copy() }
-          .disabled(controller.transcript.isEmpty)
-        Confirmable(title: "Save…", confirmation: "Saved", prominent: true) { controller.save() }
-          .disabled(controller.transcript.isEmpty)
+    VStack(alignment: .leading, spacing: 10) {
+      // After a recording four buttons share the row, so a note gets its own line.
+      if controller.phase == .finished, let note = controller.footerNote {
+        Text(note).font(.callout).foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
+      HStack(spacing: 10) {
+        switch controller.phase {
+        case .starting, .live:
+          if let note = controller.footerNote {
+            Text(note).font(.callout).foregroundStyle(.secondary).lineLimit(2).help(note)
+          }
+          Spacer()
+          // ⌘. is the Mac's stop; Return stays harmless while the window has focus.
+          Button("Stop") { controller.stop() }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(".", modifiers: .command)
+        case .stopping:
+          Spacer()
+        default:
+          // Leaving this transcript on the left, keeping it on the right.
+          Button("Discard", role: .destructive) { controller.requestDiscard() }
+          Button("New Transcript") { Task { await controller.startNew() } }
+          Spacer()
+          Confirmable(title: "Copy", confirmation: "Copied") { controller.copy() }
+            .disabled(controller.transcript.isEmpty)
+          Confirmable(title: "Save…", confirmation: "Saved", prominent: true) { controller.save() }
+            .disabled(controller.transcript.isEmpty)
+        }
+      }
+      .frame(minHeight: 32)
     }
     .controlSize(.large)
-    .frame(minHeight: 32)
     .padding(.horizontal, 18)
     .padding(.vertical, 14)
   }
@@ -404,8 +412,12 @@ private struct FollowsBottom: ViewModifier {
 private struct MeetingTurn: View {
   let entry: MeetingTranscriptEntry
   let voices: [MeetingVoice]
+  let newPersonLabel: String
   let rename: (MeetingVoice) -> Void
   let merge: (MeetingVoice, MeetingVoice) -> Void
+  /// Moves only this turn, to another voice or to a new person.
+  let reassign: (MeetingVoice) -> Void
+  let reassignToNewPerson: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -434,11 +446,12 @@ private struct MeetingTurn: View {
   }
 
   /// One of the others: a coloured mark for scanning, the name or number for
-  /// meaning, and a menu to name the voice or join it with another.
+  /// meaning, and a menu to name the voice, join it with another, or give only
+  /// this turn to someone else when the diarizer mixed two people up.
   private func voiceLabel(_ voice: MeetingVoice) -> some View {
     Menu {
-      Button("Rename…") { rename(voice) }
       let others = voices.filter { $0.voice != voice.voice }
+      Button("Rename…") { rename(voice) }
       if !others.isEmpty {
         Menu("Same Person As") {
           ForEach(others) { target in
@@ -446,10 +459,18 @@ private struct MeetingTurn: View {
           }
         }
       }
+      Divider()
+      Menu("Different Person") {
+        ForEach(others) { target in
+          Button(target.label) { reassign(target) }
+        }
+        if !others.isEmpty { Divider() }
+        Button("New Person (\(newPersonLabel))") { reassignToNewPerson() }
+      }
     } label: {
       HStack(spacing: 5) {
         Circle()
-          .fill(MeetingVoicePalette.color(for: voice.voice))
+          .fill(MeetingVoicePalette.color(for: entry.number ?? voice.voice))
           .frame(width: 8, height: 8)
           .accessibilityHidden(true)
         Text(voice.label)
@@ -466,18 +487,19 @@ private struct MeetingTurn: View {
     .buttonStyle(.plain)
     .menuIndicator(.hidden)
     .fixedSize()
-    .help(String(localized: "Name this voice or join it with another"))
+    .help(String(localized: "Name this voice, join it with another, or give this turn to a different person"))
     .accessibilityLabel(voice.label)
-    .accessibilityHint(Text("Name this voice or join it with another"))
+    .accessibilityHint(Text("Name this voice, join it with another, or give this turn to a different person"))
   }
 }
 
-/// Distinct, calm system colours for up to six voices; they repeat after that,
+/// Distinct, calm system colours for up to six voices, by their number, so a new
+/// person never borrows the colour of a voice next to it. They repeat after six,
 /// which is fine because the label, not the colour, says who it is.
 enum MeetingVoicePalette {
   private static let colors: [Color] = [.blue, .orange, .purple, .pink, .teal, .brown]
 
-  static func color(for voice: Int) -> Color { colors[abs(voice) % colors.count] }
+  static func color(for number: Int) -> Color { colors[abs(number - 1) % colors.count] }
 }
 
 /// Five bars in the capsules' geometry (2.5 pt wide, 3 pt apart) per track, in the

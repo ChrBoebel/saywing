@@ -30,22 +30,24 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 3. **Names come only from the user.**
    - A click on a speaker label renames that voice in every turn and in the export.
    - Two voices can be merged when the model split one person.
-   - Names and merges live only in memory with the transcript.
+   - One turn can be given to another voice or to a new person when the model heard two people as one (added 2026-11-06, after the speaker-split evaluation below showed that most errors are merged voices and that post-processing cannot split them). The correction is a time range and a voice; it wins over every span the model reports for that range, then or later.
+   - Names, merges and corrected turns live only in memory with the transcript.
 4. **No voice profiles.**
    - Saywing never stores speaker embeddings or attractors.
    - It never recognises a person across meetings and never tries to identify anyone.
    - Model state dies with the transcript.
 5. **Assignment.**
-   - Recognised words carry audio time ranges. Each word of "Others" goes to the voice that spoke most during it.
+   - Recognised words carry audio time ranges. Each word of "Others" goes to the voice that spoke most during it, unless the user gave that moment to a voice by hand.
    - A change of voice starts a new turn.
    - Words without a voice stay "Others".
-6. **Fallback.** If the model is missing or fails, the transcript works as before with "Others". The window says once that voices are not told apart.
+6. **Fallback.** If the model is missing or fails, the transcript works as before with "Others". The window says once that voices are not told apart: without a model when the others first speak, after a failure in the failure notice.
 7. **PDF export.**
    - Save offers PDF (first), Markdown and plain text.
    - The PDF is laid out on A4 with Core Text.
    - It is tagged (heading and paragraphs) so screen readers can follow it.
    - Its document info holds only the title and "Saywing".
    - Writing still happens only through the explicit save panel.
+8. **Honest labels** (added 2026-11-06). Telling voices apart is experimental. The first time a voice appears in a transcript, the footer says once, without a dialog, that voices are told apart automatically, may be mixed up, and can be corrected with a click on a name.
 
 ## Model and code
 
@@ -69,6 +71,7 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 - On the first load, CoreML writes a compiled form of the model (about 43 MB, derived only from the model) to `~/Library/Caches/<bundle id>/com.apple.e5rt.e5bundlecache`, one copy per model path and macOS build: loading the same model from a second path added another 43 MB, and Saywing does not remove old copies. It appears during loading only; the session adds nothing to it and writes no audio or voice state.
 - Diarisation costs CPU next to the two speech transcribers. It must be measured in the 60-minute gate of ADR 0006.
 - The project's own LS-EEND documentation states recordings up to one hour. Transcripts may run two hours; the second hour must be checked in the gate.
+- Correcting the model is manual. The window offers "Rename…", "Same Person As ▸" (merge two voices) and "Different Person ▸" (move one turn to another voice or a new person). A turn holds all words of one voice until someone else speaks, so two people the model merged who speak back to back stay one turn and move together.
 - Speaker voices are biometric data under GDPR Art. 9 as soon as they are used to identify someone. Saywing does not identify anyone, keeps nothing, and the user names voices by hand. This belongs in the legal review that ADR 0006 already makes a release gate.
 
 ## Model decision — 2026-11-04
@@ -95,7 +98,7 @@ Public builds carry the DIHARD III variant (`dih3`, up to 10 speakers), by maint
 
 ## Verification so far
 
-- Unit tests cover voice assignment, numbering, renaming and merging, the voice tracker's queueing and late-result handling, the save panel's format menu, and the Markdown, text and PDF export. One test runs synthetic speech of three voices through Apple's recognizer and the voice tracker, with a stand-in diarizer that knows who spoke, and checks that a named voice reaches the saved PDF.
+- Unit tests cover voice assignment, numbering, renaming, merging and moving one turn (to another voice, to a new person, against later spans, with merges and names, in every export format), the one-time notes about voices, the voice tracker's queueing and late-result handling, the save panel's format menu, and the Markdown, text and PDF export. One test runs synthetic speech of three voices through Apple's recognizer and the voice tracker, with a stand-in diarizer that knows who spoke, and checks that a named voice reaches the saved PDF.
 - Echo on "Me" (found in a call over laptop speakers, 2026-10-21): a segment of "Me" now counts as an echo when at least three of its words with three or more letters exist and 60 % of them sound like words the others said at the same moment. The signal threshold of the echo gate is now 0.12, measured with synthetic speech in a simulated room: different voices reached at most 0.085, a quiet, reverberant, distorted echo at least 0.14. A real room measurement with laptop speakers and microphone is still open.
 - Adapter (2026-11-04, Apple M4 unless noted): `LSEENDMeetingDiarizer` keeps one resampler per stream, because FluidAudio's `sourceSampleRate:` restarts its converter on every chunk. It keeps no frames or segments and reports a voice still speaking once a second. The tracker releases it on finish, cancel and failure. A model that will not load reports through the existing "no longer told apart" path.
 - The opt-in test suite (`TEST_RUNNER_SAYWING_DIARIZATION_MODELS=<folder>`) uses the committed fixtures, A-B-A with 28.9 s of two readers, one female, one male, read speech at the model's own 8 kHz: both readers got their own voice in all three variants, with 100 % of attributed time correct. Time attributed: AMI 95 %, CALLHOME 88 %, DIHARD III 86 %. The same audio at 48 kHz through the tracker gave the same result.
@@ -125,4 +128,18 @@ Public builds carry the DIHARD III variant (`dih3`, up to 10 speakers), by maint
 - Cost, one model in a standalone Release program: load 0.35 s cold, 0.03 s with CoreML's cache; about 1.1 % of real time on one core; about 8 to 16 MB of footprint for the model. Labels arrive a median of 0.92 s and at most 1.62 s after the audio. Two hours of three alternating readers (DIHARD III, 30 s turns) with network denied: 99.2 % correct overall and 99.2 % in the last quarter, 4 voices used, footprint flat (708 to 711 MB, almost all of it the program's own copy of the audio).
 - x86_64: the same real-model tests give the same results under Rosetta (real-time factor about 0.05 in a Debug build). No physical Intel Mac was measured.
 - A Hardened Runtime signature (ad hoc) with the app's entitlements loads and runs the model, and `codesign --verify --deep --strict` seals the `.mlmodelc`; no file in it is Mach-O. Developer ID signing and notarization with the model have not been run.
+- Speaker-split evaluation (2026-11-05, Apple M4, DIHARD III, [scripts/diarization-eval](../../scripts/diarization-eval/README.md)): 48 public-domain LibriVox readers (German and English, 12 per language and gender) and 16 macOS system voices, split by speaker into dev and test. 72 seeded conversations per split (2 to 5 speakers, turns of 10-20, 4-8 or 1.5-4 s, similar-voice pairs, up to about 9 % overlap, pauses), each clean at 8 kHz, clean at 48 kHz through the app's resampler, and as a call (300-3400 Hz, AAC at 20 kbit/s, noise at 25 dB SNR). The harness compiles the adapter itself and feeds it in 10 ms chunks. The test manifest was frozen before tuning.
+
+  | Test split, current adapter | Correct | Exact voice count |
+  |---|---:|---:|
+  | 2-3 readers, no similar pair | 91.5 % | 78 % |
+  | 2-3 readers, all | 87.8 % | 70 % |
+  | 4-5 readers | 82.8 % | 41 % |
+  | Similar pair, any count | 81.3 % | 51 % |
+  | System voices | 79.5 % | 64 % |
+  | Turns of 1.5-4 s | 73.1 % | 27 % |
+  | All 216 runs (dev: 89.7 %, 71 %) | 84.2 % | 57 % |
+
+  None of the targets is met (2-3 speakers 95 % and exact count in 90 %; 4-5 speakers and similar voices 85 %). Label lag stays at a median of 0.91 s (90th percentile 1.51 s), real-time factor about 0.016. Most of the error is voices the model merges: on test, 10.7 of 15.9 points of wrong time lie in turns of readers who got no voice of their own, also across genders. Post-processing of the model output (one voice per frame, smoothing, hysteresis, a minimum speech time before a voice appears) moved dev results by -2.8 to +0.5 points, because the model's probabilities are almost binary. A noise floor under digital silence raised dev from 89.7 % to 92.0 % but held only partly on test (84.2 % to 84.5 %, call audio worse), so it was not shipped. Telling merged voices apart needs more than post-processing of this model; that is a model limit, not a tuning gap.
+- The evaluation also found that CoreML without a writable cache folder falls back to a CPU path that mishandles LS-EEND's state, which FluidAudio 0.18.2 updates in place: output differs between processes, and voices are mixed up (60 of 60 fresh processes wrong in a controlled test; in some, every reader became one voice). With the cache, repeated runs were bit-identical. The app can hit this when a new compiled bundle (about 43 MB) has to be written while the disk is nearly full (first transcript, after a macOS update or a model move, after macOS clears Caches) or when the user cannot write `~/Library/Caches/<bundle id>`. Since 2026-11-06 the adapter runs a two-second check at load that compares FluidAudio's in-place path with a copy of the model whose state is fed back separately; if they disagree, the model is refused through the existing failure path and the others stay "Others" instead of getting wrong labels. The real fix belongs in FluidAudio (separate state buffers). The real-model tests and the harness must run where CoreML can write its cache.
 - Not verified: real calls, the gates below, CPU next to both recognisers, a signed app with the model running a live transcript, and a per-process trace of file writes. The disk check compares folders: the app's caches after loading, FluidAudio's folder, and audio files in the temporary folder, which other processes share.

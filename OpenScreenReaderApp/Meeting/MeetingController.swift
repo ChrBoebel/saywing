@@ -38,6 +38,12 @@ final class MeetingController: ObservableObject {
   @Published private(set) var hasUnsavedText = false
   /// The others' voices are being told apart in this transcript.
   @Published private(set) var tellsVoicesApart = false
+  /// Said once per transcript, when it first matters: that the voices are told
+  /// apart automatically and may be mixed up, or, without a voice model, that they
+  /// are not told apart. It stays in the footer while nothing more urgent is there.
+  @Published private(set) var voicesNote: String?
+  /// What the footer shows: a warning first, otherwise the note about voices.
+  var footerNote: String? { notice ?? voicesNote }
   private(set) var startedAt: Date?
 
   var isRecording: Bool { phase == .starting || phase == .live || phase == .stopping }
@@ -71,6 +77,8 @@ final class MeetingController: ObservableObject {
   private var microphone: (any MeetingAudioSource)?
   private var system: (any MeetingAudioSource)?
   private var startHost: UInt64 = 0
+  /// This transcript started without a voice model (not after one failed).
+  private var voiceModelMissing = false
   private var warned = false
   private var ticker: Task<Void, Never>?
   private var lifecycle: Task<Void, Never>?
@@ -201,6 +209,8 @@ final class MeetingController: ObservableObject {
         onVoices: { [weak self] spans in Task { @MainActor in self?.addVoices(spans, id) } },
         onFailure: { [weak self] message in Task { @MainActor in self?.voicesFailed(message, id) } })
       tellsVoicesApart = true
+    } else {
+      voiceModelMissing = true
     }
     startHost = hostClock()
     let router = MeetingAudioRouter(startHostTime: startHost, recognizer: recognizer, voices: voices) { [weak self] spans in
@@ -327,6 +337,20 @@ final class MeetingController: ObservableObject {
     if !transcript.isEmpty { hasUnsavedText = true }
   }
 
+  /// Gives one turn to another voice the diarizer confused it with.
+  func reassignTurn(_ turn: MeetingTranscriptEntry, to voice: Int) {
+    let before = transcript
+    transcript.reassign(turn, to: voice)
+    if transcript != before { hasUnsavedText = true }
+  }
+
+  /// Gives one turn to someone the diarizer did not hear as a voice of their own.
+  func reassignTurnToNewPerson(_ turn: MeetingTranscriptEntry) {
+    let before = transcript
+    transcript.reassignToNewPerson(turn)
+    if transcript != before { hasUnsavedText = true }
+  }
+
   /// Copies the chat notice only because the user asked for it.
   func copyConsentNotice() {
     pasteboard.clearContents()
@@ -367,6 +391,7 @@ final class MeetingController: ObservableObject {
     guard gate.accepts(id) else { return }
     transcript.apply(result)
     if result.isFinal, !result.text.trimmingCharacters(in: .whitespaces).isEmpty { hasUnsavedText = true }
+    noteVoices()
   }
 
   private func addEcho(_ spans: [ClosedRange<TimeInterval>], _ id: UUID) {
@@ -377,6 +402,17 @@ final class MeetingController: ObservableObject {
   private func addVoices(_ spans: [MeetingVoiceSpan], _ id: UUID) {
     guard gate.accepts(id) else { return }
     spans.forEach { transcript.addVoice($0) }
+    noteVoices()
+  }
+
+  /// Tells once, without a dialog, how far the voice labels can be trusted.
+  private func noteVoices() {
+    guard voicesNote == nil else { return }
+    if tellsVoicesApart, !transcript.voices.isEmpty {
+      voicesNote = String(localized: "Voices are told apart automatically and may be mixed up. Click a name to correct it.")
+    } else if voiceModelMissing, transcript.entries.contains(where: { $0.speaker == .others }) {
+      voicesNote = String(localized: "The others' voices are not told apart in this transcript.")
+    }
   }
 
   /// The transcript goes on; only telling the others apart stops.
@@ -437,6 +473,8 @@ final class MeetingController: ObservableObject {
     router = nil
     voices = nil
     tellsVoicesApart = false
+    voiceModelMissing = false
+    voicesNote = nil
   }
 
   private var isUnavailable: Bool {
