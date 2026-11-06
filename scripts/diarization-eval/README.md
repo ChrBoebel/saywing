@@ -14,8 +14,11 @@ app never calls it, and no audio is committed.
   The test manifest was written before any tuning and is not changed afterwards.
 - `Package.swift`, `Sources/diarization-eval`: the harness. Its `App-*.swift` files
   are symlinks to the app's meeting sources, so it compiles exactly what ships.
-- `score.py`, `evaluate.py`: scoring and the run wrapper. `explore.py`: offline
-  exploration of post-processing rules on dumped model output (dev only).
+- `score.py`, `evaluate.py`: scoring and the run wrapper.
+
+The LS-EEND-only tools behind the earlier results (`--diagnose`, `--probe`,
+`--check`, `--dump` and `explore.py`) were removed with that model on 2026-11-07;
+they are in the history up to commit `96925ef`.
 
 ## Corpus
 
@@ -33,7 +36,7 @@ Each split has 60 conversations of readers (2, 3, 4 or 5 speakers; turns of
 
 | Condition | Audio |
 |---|---|
-| `clean8` | the mix at the model's 8 kHz |
+| `clean8` | the mix at 8 kHz (LS-EEND's own rate; the Nemotron adapter brings it to 16 kHz) |
 | `clean48` | the same mix at 48 kHz, through the app's resampler in 10 ms chunks |
 | `call48` | 300-3400 Hz band, AAC round trip at 20 kbit/s, pink noise at 25 dB SNR, at 48 kHz through the resampler |
 
@@ -50,15 +53,19 @@ python3 corpus.py --work $W split            # once
 python3 scenarios.py --work $W plan --split dev && python3 scenarios.py --work $W plan --split test   # once
 python3 scenarios.py --work $W render --split dev && python3 scenarios.py --work $W render --split test
 swift build -c release --scratch-path $W/build
-python3 evaluate.py --work $W --split dev --label baseline --model <ls_eend_dih3_100ms.mlmodelc>
+python3 ../fetch-diarization-model.py $W/models/nemotron-3     # the bundled preset; --preset for others
+python3 evaluate.py --work $W --split dev --label nemotron --model $W/models/nemotron-3 \
+    --binary $W/build/release/diarization-eval
 ```
 
-**Run the harness in a normal shell.** When CoreML cannot write its cache folder
-(`~/Library/Caches/diarization-eval`, for example inside a sandboxed shell), it
-falls back to another CPU path that gives wrong voices; see "CoreML's cache" below.
-With a writable cache, repeated runs are bit-identical. `--diagnose <wav>` prints
-checksums of the features and the model output; `--probe <wav>` compares
-FluidAudio's in-place state with separate state in one process.
+`--model` is a folder laid out like the app's Diarization folder, as the fetch
+script leaves it; its manifest names the preset. The harness loads the model
+through the app's `MeetingVoiceModel.loadDiarizer` before feeding any audio.
+
+**Run the harness in a normal shell**, where CoreML can write its cache folder
+(`~/Library/Caches/diarization-eval`). With the cache, repeated runs are
+bit-identical. Without it CoreML takes a slower path; for Nemotron that path gives
+the same voices (see "CoreML's cache" below), for LS-EEND it did not.
 
 To check that a local corpus matches the committed one, compare `$W/*.json` with
 `manifests/` (the manifests store the SHA-256 of every speaker file). `evaluate.py`

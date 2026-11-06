@@ -1,12 +1,14 @@
 import AVFoundation
-import CoreML
-import FluidAudio
 import Foundation
 
-// Runs the app's LSEENDMeetingDiarizer over prepared conversations and writes what it
-// reported. Scoring happens in score.py against the scenario manifest.
+// Runs the app's voice adapter (NemotronMeetingDiarizer) over prepared conversations
+// and writes what it reported. Scoring happens in score.py against the scenario
+// manifest.
 //
-//   diarization-eval --model <ls_eend_*.mlmodelc> --plan <runs.json> --out <results.jsonl>
+//   diarization-eval --model <folder> --plan <runs.json> --out <results.jsonl>
+//
+// <folder> is laid out like the app's Diarization folder, as
+// scripts/fetch-diarization-model.py leaves it: the manifest names the preset.
 //
 // runs.json: [{"run": "dev-001.clean8", "audio": "/path/file.wav", "feedRate": 48000}, ...].
 // Audio is fed in 10 ms chunks through `append`, as the voice tracker does.
@@ -88,27 +90,28 @@ func seconds(_ duration: Duration) -> Double {
   Double(duration.components.seconds) + Double(duration.components.attoseconds) * 1e-18
 }
 
-/// Through the app's own lookup and factory, from a resources folder holding only
-/// this model. A stable folder keeps CoreML's compiled cache from piling up.
-func makeDiarizer(model: URL, resources: URL) throws -> any MeetingVoiceDiarizing {
-  let folder = resources.appendingPathComponent("Diarization")
-  let link = folder.appendingPathComponent(model.lastPathComponent)
+/// Through the app's own lookup and loader, from a resources folder whose Diarization
+/// folder is the given one. A stable folder keeps CoreML's compiled cache from piling
+/// up. The model is loaded before any audio, so the lag measures the adapter, not
+/// the app's preload.
+func makeDiarizer(model: URL, resources: URL) async throws -> any MeetingVoiceDiarizing {
+  let link = resources.appendingPathComponent("Diarization")
   if (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != model.path {
     try? FileManager.default.removeItem(at: resources)
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
     try FileManager.default.createSymbolicLink(at: link, withDestinationURL: model)
   }
-  guard let diarizer = MeetingVoiceModel.makeDiarizer(in: resources) else { throw MeetingError("model not found") }
-  return diarizer
+  return try await MeetingVoiceModel.loadDiarizer(in: resources)
 }
 
-func evaluate(_ run: Run, model: URL, resources: URL) throws -> Result {
+func evaluate(_ run: Run, model: URL, resources: URL) async throws -> Result {
   let (original, fileRate) = try load(run.audio)
   let rate = run.feedRate ?? fileRate
   let samples = try converted(original, from: fileRate, to: rate)
   let clock = ContinuousClock()
-  var diarizer: (any MeetingVoiceDiarizing)!
-  let loadTime = try clock.measure { diarizer = try makeDiarizer(model: model, resources: resources) }
+  let started = clock.now
+  let diarizer = try await makeDiarizer(model: model, resources: resources)
+  let loadTime = clock.now - started
   let afterLoad = footprintMB()
   var peak = afterLoad
   var spans: [MeetingVoiceSpan] = []
@@ -151,33 +154,8 @@ while index + 1 < CommandLine.arguments.count {
   arguments[CommandLine.arguments[index]] = CommandLine.arguments[index + 1]
   index += 2
 }
-if let modelPath = arguments["--model"], let checkSeconds = arguments["--check"] {
-  try stateCheck(modelURL: URL(fileURLWithPath: modelPath), seconds: Double(checkSeconds) ?? 4)
-  exit(0)
-}
-if let modelPath = arguments["--model"], let audioPath = arguments["--probe"] {
-  try probe(audio: audioPath, modelURL: URL(fileURLWithPath: modelPath), chunks: Int(arguments["--chunks"] ?? "") ?? 400)
-  exit(0)
-}
-if let modelPath = arguments["--model"], let audioPath = arguments["--diagnose"] {
-  try diagnose(audio: audioPath, model: try LSEENDModel(modelURL: URL(fileURLWithPath: modelPath), computeUnits: .cpuOnly))
-  exit(0)
-}
-if let modelPath = arguments["--model"], let planPath = arguments["--plan"], let dumpPath = arguments["--dump"] {
-  let units: [String: MLComputeUnits] = ["cpu": .cpuOnly, "gpu": .cpuAndGPU, "ane": .cpuAndNeuralEngine, "all": .all]
-  let model = try LSEENDModel(
-    modelURL: URL(fileURLWithPath: modelPath), computeUnits: units[arguments["--units"] ?? "cpu"] ?? .cpuOnly)
-  let folder = URL(fileURLWithPath: dumpPath)
-  try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-  let runs = try JSONDecoder().decode([Run].self, from: Data(contentsOf: URL(fileURLWithPath: planPath)))
-  for (number, run) in runs.enumerated() {
-    try dumpProbabilities(run, model: model, into: folder)
-    print("[\(number + 1)/\(runs.count)] dumped \(run.run)")
-  }
-  exit(0)
-}
 guard let modelPath = arguments["--model"], let planPath = arguments["--plan"], let outPath = arguments["--out"] else {
-  FileHandle.standardError.write(Data("usage: diarization-eval --model <mlmodelc> --plan <runs.json> --out <results.jsonl>\n".utf8))
+  FileHandle.standardError.write(Data("usage: diarization-eval --model <folder> --plan <runs.json> --out <results.jsonl>\n".utf8))
   exit(2)
 }
 let model = URL(fileURLWithPath: modelPath)
@@ -188,7 +166,7 @@ let out = try FileHandle(forWritingTo: URL(fileURLWithPath: outPath))
 let encoder = JSONEncoder()
 encoder.keyEncodingStrategy = .convertToSnakeCase
 for (number, run) in runs.enumerated() {
-  let result = try evaluate(run, model: model, resources: resources)
+  let result = try await evaluate(run, model: model, resources: resources)
   try out.write(contentsOf: encoder.encode(result) + Data("\n".utf8))
   print(String(format: "[%d/%d] %@ rtf %.4f spans %d%@", number + 1, runs.count, run.run, result.realTimeFactor,
                result.spans.count, result.failure.map { " FAILED \($0)" } ?? ""))
