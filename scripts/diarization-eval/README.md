@@ -85,7 +85,10 @@ Readers and voices are paired one to one (Hungarian method, most shared time).
 - **Lag**: seconds of audio already fed when a span arrived, minus its end.
 - Real-time factor of feeding and the peak physical footprint of the process.
 
-## Results (2026-11-05, Apple M4, DIHARD III variant)
+## Results with LS-EEND (2026-11-05, Apple M4, DIHARD III variant)
+
+These are the results of the model the app used until 2026-11-07; Nemotron 3 is
+below.
 
 Every run on the test split is listed. Each split has 216 runs (72 conversations in
 three conditions). "Correct" is pooled over runs; "Exact" is the share of runs with
@@ -196,7 +199,71 @@ only (all 216 runs, the "all runs" row):
 Load time does not decide; it is measured and reported next to the result. The test
 split is then run once, with the chosen configuration through the app's adapter.
 
+**Dev measurements** (2026-11-06/07, Apple M4, macOS 25G83, FluidAudio 0.18.2,
+`FluidInference/nemotron-3-diarization-coreml` revision `25a90f97`, all 216 runs).
+The streaming numbers come from the bake-off runner, which feeds exactly like the
+harness; the chosen `fast` was then run again through the app's adapter with this
+harness and gave the same table bit for bit (96.4 / 93, lag 0.33 / 1.22 s,
+real-time factor 0.022). FluidInference publishes no W8A8 build of `fast`.
+
+| Candidate | Size | Correct | Exact count | Lag median / p90 | Real-time factor | Load, empty CoreML cache | Load, warm |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `fast32` fp16 | 199.1 MB | **96.6** | 93 | 0.52 / 2.43 s | 0.0095 | 6.6 s | 0.08 s |
+| `fast32-split-w8a8` | 102.1 MB | 96.5 | 91 | 0.52 / 2.44 s | 0.0052 | 22.0 s | 0.07 s |
+| `fast` fp16 | 199.1 MB | 96.4 | 93 | **0.33** / 1.22 s | 0.0197 | 6.5 s | 0.08 s |
+| LS-EEND dih3 (before) | 44.6 MB | 89.7 | 71 | 0.91 / 1.51 s | 0.0169 | | |
+
+All three are within 0.5 points of 96.6, so the lower lag decides: **`fast`**
+(the bundled preset). Its time-weighted lag (how late each labelled second got its
+label) is 1.17 s median, against 1.79 s for `fast32`.
+
+Load times: one fresh process each, model load until `Nemotron3Models.load`
+returned; "empty CoreML cache" is a new `CFFIXED_USER_HOME` with a writable
+`Library/Caches` (CoreML compiles the model for the Neural Engine and keeps about
+1.1 MB there), "warm" the second and third process with the same cache. The 6 s and
+21 s of the bake-off were therefore cold loads. The first load in the Xcode test
+host, next to other tests, took 13 s for `fast`.
+
+**Test split, run once** (2026-11-07, third and last allowed run, label
+`nemotron-fast`, manifest `31fc09f3…`, the app's adapter with the bundled preset):
+
+| Group | LS-EEND dih3 correct / exact | Nemotron 3 `fast` correct / exact |
+|---|---:|---:|
+| All runs | 84.2 / 57 | **94.9 / 94** |
+| Readers, 2-3, no similar pair | 91.5 / 78 | **98.5 / 100** |
+| Readers, 2-3, all | 87.8 / 70 | **97.9 / 100** |
+| Readers, 2-3, similar pair | 81.9 / 58 | **97.0 / 100** |
+| Readers, 4-5 | 82.8 / 41 | **94.9 / 89** |
+| Readers, 4-5, similar pair | 80.8 / 44 | **94.6 / 86** |
+| Similar pair, any count | 81.3 / 51 | **95.8 / 93** |
+| System voices | 79.5 / 64 | **88.1 / 89** |
+| Turns 10-20 s | 92.3 / 80 | **98.4 / 100** |
+| Turns 4-8 s | 87.0 / 60 | **96.0 / 97** |
+| Turns 1.5-4 s | 73.1 / 27 | **94.2 / 87** |
+| clean8 / clean48 / call48 | 83.3 / 82.4 / 86.8 | **93.2 / 96.0 / 95.5** |
+| Exact, clean8 / clean48 / call48 | 53 / 51 / 67 | **90 / 96 / 94** |
+
+Lag median 0.33 s, 90th percentile 1.24 s (LS-EEND 0.91 / 1.51 s); coverage of
+voiced reference speech 93.9 % (92.2 %); real-time factor median 0.018; no
+failures. Per run, Nemotron was better by more than a point in 141 of 216 runs and
+worse in 18. Where it errs, it now finds too few voices (6 % of runs: 4-5 readers,
+system voices, short turns), never too many. The dev advantage held on test.
+
 ## CoreML's cache
+
+**Nemotron 3** (2026-11-06, `fast`, the app's adapter through this harness, six
+3-reader dev conversations clean8 plus two call48, one process per run set):
+FluidAudio keeps Nemotron's state in Swift arrays and copies it into separate
+inputs for every step, with separate output buffers, so nothing is updated in
+place. With `Library/Caches` read-only (`CFFIXED_USER_HOME`, as below), CoreML
+prints the same `E5RT encountered an STL exception` and takes its other path: 5 of 5
+processes gave spans identical to each other and the same score as with the cache
+(98.6 % correct, every voice count exact; the spans differ from the cached path in
+the last digits only). That path is slower (real-time factor 0.07 instead of 0.02)
+and uses more memory (peak footprint about 720 MB instead of 120-180 MB). No guard
+is needed, and the app has none.
+
+**LS-EEND**, kept for the record:
 
 FluidAudio's `LSEENDModel` binds every recurrent state output (`enc_kv_new`, ...)
 to the very array it passes as the matching input (`enc_kv`, ...), so the model
@@ -231,8 +298,8 @@ sandboxed runs did in about one process of four.
 | Cache deleted while a process runs, or between loads | fine (rebuilt at next load) |
 
 A read-only warm cache only lasts until the key changes: a new macOS build or a
-model at a new place needs a new 43 MB bundle. A proposed app-side guard compares,
+model at a new place needs a new 43 MB bundle. The app's guard (2026-11-06, removed with LS-EEND on 2026-11-07) compared,
 at load, two seconds of synthetic voices through the in-place path and through a
 second copy of the model with separate state (bit-identical with the cache, 0.16 to
 0.46 apart without it, for all three variants) and reports the model unavailable
-when they differ; it is kept outside this folder until the app adopts it.
+when they differed.

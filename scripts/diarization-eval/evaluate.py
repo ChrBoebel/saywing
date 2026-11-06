@@ -2,7 +2,7 @@
 """Runs the harness over one split and scores it.
 
   python3 evaluate.py --work /tmp/claude/diar-eval --split dev --label baseline \\
-      --model /path/ls_eend_dih3_100ms.mlmodelc
+      --model /path/nemotron-3   # a folder from scripts/fetch-diarization-model.py
 
 Results land in <work>/runs/<label>-<split>.{jsonl,json,md}. Runs on the test split
 are logged in <work>/test-runs.log, and a fourth one is refused: the test set is for
