@@ -17,7 +17,7 @@
 - Blind listening comparison with Apple's voices, voice selection, and memory/latency/energy measurement on an M4 with 16 GB RAM.
 - Live VoiceOver/keyboard walkthrough ([#46](https://github.com/ChrBoebel/saywing/issues/46)) and a full real UI regression.
 - A guide to verify offline behavior yourself ([#48](https://github.com/ChrBoebel/saywing/issues/48)).
-- Telling the others' voices apart in meeting transcripts: public builds carry the voice model from the next release on ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)); measuring it on real calls is still open.
+- Telling the others' voices apart in meeting transcripts: the code now uses Nemotron 3 Diarization; public builds carry it once the maintainer records its license decision ([ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)); measuring it on real calls is still open.
 - Physical macOS 14/15 and Intel reports ([#47](https://github.com/ChrBoebel/saywing/issues/47), [#31](https://github.com/ChrBoebel/saywing/issues/31)).
 - Name comprehension and trademark review; demo GIF/video and screenshots.
 
@@ -41,7 +41,8 @@
 - [ ] Meeting transcript gates: real call over speakers and headphones on the signed build, permission prompt, echo duplicates, word errors on real speech, 60-minute CPU/memory, no files written.
 - [x] Meeting speakers and PDF export (project decision 2026-10-18, [ADR 0008](decisions/0008-meeting-speakers-and-pdf.md)): voices of the others told apart and nameable, tagged PDF/Markdown/text export.
 - [x] Meeting speakers adapter: FluidAudio 0.18.2 with only its `Diarizer` trait, tested with the real model on read speech.
-- [ ] Meeting speakers model: maintainer decision on the LS-EEND training data and license (ask LDC and the authors), variant chosen on recorded calls, gates of ADR 0008. The release flag `SAYWING_BUNDLE_DIARIZATION_MODEL` stays off until then.
+- [x] Meeting speakers model change to Nemotron 3 Diarization (2026-11-07): adapter, preload from the consent step, manifest, notice, evaluation on dev and test.
+- [ ] Meeting speakers model: maintainer license decision on Nemotron 3 Diarization (OpenMDW-1.1, LDC data in training), then the gates of ADR 0008 on recorded calls. Public builds with the model stop at the release gate until the decision is recorded.
 - [ ] Meeting transcript candidates, each needing its own decision: Whisper refinement with the vocabulary, summaries, meeting detection, mixed-language meetings, macOS 14–15 support.
 
 ## Current delivery — 2026-09-09
