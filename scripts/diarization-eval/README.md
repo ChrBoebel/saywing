@@ -173,6 +173,22 @@ were measured while other work ran on the machine (90th percentile 0.021-0.023).
 Test-split runs: `baseline` and `floorbg`, both with manifest SHA-256
 `31fc09f3…eefdd2ba1`. The third allowed run was not used.
 
+## Nemotron 3: choosing the configuration
+
+**Rule, written down on 2026-11-06 before the measurements below.** The candidates
+are Nemotron 3 Diarization in the `fast` or `fast32` streaming shape, each as fp16
+or W8A8 if FluidInference publishes that build. They are compared on the dev split
+only (all 216 runs, the "all runs" row):
+
+1. The highest "correct" share wins.
+2. Candidates within 0.5 points of the highest count as tied. Among tied
+   candidates, the lower label lag wins (the harness's lag median, see "Metrics");
+   if that ties too, the smaller model wins.
+3. A candidate whose label-lag median is above 2 s is out.
+
+Load time does not decide; it is measured and reported next to the result. The test
+split is then run once, with the chosen configuration through the app's adapter.
+
 ## CoreML's cache
 
 FluidAudio's `LSEENDModel` binds every recurrent state output (`enc_kv_new`, ...)
