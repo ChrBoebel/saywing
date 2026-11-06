@@ -130,47 +130,150 @@ struct MeetingVoiceAudioTests {
     }
 }
 
-@Suite("Meeting voice model in the bundle")
-struct MeetingVoiceBundleTests {
-    private func temporaryResources() -> URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+/// Frames of 10 ms in which only `voice` speaks, or nobody.
+private func frames(_ voice: Int?, seconds: Double, voices: Int = 8) -> [Float] {
+    let count = Int((seconds * 100).rounded())
+    var probabilities = [Float](repeating: 0.02, count: count * voices)
+    if let voice { for frame in 0..<count { probabilities[frame * voices + voice] = 0.95 } }
+    return probabilities
+}
+
+@Suite("Meeting voice frames")
+struct MeetingVoiceFramesTests {
+    @Test
+    func eightVoicesAreToldApartInTheirOwnTime() throws {
+        var voices = MeetingVoiceFrames(voices: 8, frameDuration: 0.01)
+        var spans: [MeetingVoiceSpan] = []
+        for voice in 0..<8 {
+            spans += try voices.spans(frames(voice, seconds: 1.5) + frames(nil, seconds: 0.5), heard: Double(voice + 1) * 2, final: false)
+        }
+        spans += try voices.spans([], heard: 16, final: true)
+        #expect(Set(spans.map(\.voice)) == Set(0..<8))
+        for voice in 0..<8 {
+            let own = spans.filter { $0.voice == voice }
+            #expect(abs((own.map(\.start).min() ?? -1) - Double(voice) * 2) < 0.011)
+            #expect(abs(own.reduce(0) { $0 + $1.end - $1.start } - 1.5) < 0.011, "voice \(voice): \(own)")
+        }
+    }
+
+    /// The model hands over 0.72 s at a time; a monologue must get its voice while it
+    /// lasts, but as one new stretch a second, not one per step.
+    @Test
+    func aVoiceStillSpeakingIsReportedOnceASecond() throws {
+        var voices = MeetingVoiceFrames(voices: 8, frameDuration: 0.01)
+        var spans: [MeetingVoiceSpan] = []
+        for step in 1...10 {
+            spans += try voices.spans(frames(3, seconds: 0.72), heard: 0.72 * Double(step), final: false)
+        }
+        #expect(spans.count >= 5 && spans.count < 10, "\(spans)")
+        #expect(spans.allSatisfy { $0.voice == 3 })
+        #expect(spans.dropLast().allSatisfy { $0.end - $0.start >= 1 })
+        #expect(zip(spans, spans.dropFirst()).allSatisfy { abs($0.end - $1.start) < 1e-9 })
+        spans += try voices.spans([], heard: 7.2, final: true)
+        #expect(spans.first?.start == 0)
+        #expect(abs((spans.last?.end ?? 0) - 7.2) < 1e-9)
     }
 
     @Test
+    func aBlipIsNoVoiceAndABreathIsNoChange() throws {
+        var voices = MeetingVoiceFrames(voices: 8, frameDuration: 0.01)
+        var spans = try voices.spans(frames(1, seconds: 0.1) + frames(nil, seconds: 2), heard: 2.1, final: false)
+        spans += try voices.spans(frames(2, seconds: 1) + frames(nil, seconds: 0.3) + frames(2, seconds: 1), heard: 4.4, final: false)
+        spans += try voices.spans([], heard: 4.4, final: true)
+        #expect(spans.allSatisfy { $0.voice == 2 })
+        #expect(abs(spans.reduce(0) { $0 + $1.end - $1.start } - 2.3) < 0.011)
+    }
+
+    /// Two hours of meeting must not leave two hours of frames in memory.
+    @Test
+    func nothingGrowsWithTheMeeting() throws {
+        var voices = MeetingVoiceFrames(voices: 8, frameDuration: 0.01)
+        for step in 0..<1_000 {
+            _ = try voices.spans(frames(step / 4 % 8, seconds: 0.72), heard: 0.72 * Double(step + 1), final: false)
+        }
+        #expect(voices.retainedFrames == 0)
+    }
+}
+
+/// A Diarization folder as scripts/bundle-diarization-model.py leaves it in the app,
+/// with stand-in files.
+private func diarizationFolder(preset: String = "fast", model: String = "Nemotron3Diarizer_fast.mlmodelc",
+                               writing files: [String]? = nil) throws -> URL {
+    let resources = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let folder = resources.appendingPathComponent("Diarization")
+    let listed = ["\(model)/coremldata.bin", "\(model)/model.mil", "\(model)/weights/weight.bin", "learnable_sil_emb.bin"]
+    let manifest: [String: Any] = [
+        "bundled_preset": preset,
+        "presets": [preset: ["subdirectory": "monolithic/v2", "model": model,
+                             "files": listed.map { ["rfilename": $0.hasSuffix(".bin") && !$0.contains("/") ? $0 : "monolithic/v2/\($0)",
+                                                    "size": 1, "verified_sha256": String(repeating: "0", count: 64)] }]],
+    ]
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appendingPathComponent(MeetingVoiceModel.manifestName))
+    for file in files ?? listed {
+        let url = folder.appendingPathComponent(file)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0]).write(to: url)
+    }
+    return resources
+}
+
+@Suite("Meeting voice model in the bundle")
+struct MeetingVoiceBundleTests {
+    @Test
     func withoutAModelThereIsNoDiarizer() {
-        #expect(MeetingVoiceModel.makeDiarizer(in: temporaryResources()) == nil)
+        let resources = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        #expect(MeetingVoiceModel.bundled(in: resources) == nil)
+        #expect(MeetingVoiceModel.makeDiarizer(in: resources) == nil)
+    }
+
+    /// The manifest that came with the model says which model to load, and every file
+    /// it lists must be there.
+    @Test
+    func theManifestNamesTheModelAndEveryFileMustBeThere() throws {
+        let resources = try diarizationFolder()
+        defer { try? FileManager.default.removeItem(at: resources) }
+        let found = try #require(MeetingVoiceModel.bundled(in: resources))
+        #expect(found.preset == "fast")
+        #expect(found.model == "Nemotron3Diarizer_fast.mlmodelc")
+        #expect(found.directory.lastPathComponent == "Diarization")
+        for missing in ["Nemotron3Diarizer_fast.mlmodelc/weights/weight.bin", "learnable_sil_emb.bin"] {
+            let partial = try diarizationFolder(writing: ["Nemotron3Diarizer_fast.mlmodelc/coremldata.bin",
+                                                          "Nemotron3Diarizer_fast.mlmodelc/model.mil",
+                                                          "Nemotron3Diarizer_fast.mlmodelc/weights/weight.bin",
+                                                          "learnable_sil_emb.bin"].filter { $0 != missing })
+            defer { try? FileManager.default.removeItem(at: partial) }
+            #expect(MeetingVoiceModel.bundled(in: partial) == nil, "\(missing)")
+        }
+    }
+
+    /// A preset this FluidAudio does not know, or one whose model file is another,
+    /// is no model at all rather than a wrong one.
+    @Test
+    func aPresetThatDoesNotMatchTheRuntimeIsRefused() async throws {
+        for (preset, model) in [("unknown", "Nemotron3Diarizer_fast.mlmodelc"), ("fast", "Nemotron3Diarizer_low.mlmodelc")] {
+            let resources = try diarizationFolder(preset: preset, model: model)
+            defer { try? FileManager.default.removeItem(at: resources) }
+            await #expect(throws: (any Error).self) { try await MeetingVoiceModel.loadDiarizer(in: resources) }
+        }
     }
 
     /// A broken model must not end the transcript and must not look like a working
     /// one: its load error reaches the window through the tracker's failure path.
     @Test
     func aBrokenModelReportsItsErrorOnceThroughTheTracker() throws {
-        let resources = temporaryResources()
+        let resources = try diarizationFolder()
         defer { try? FileManager.default.removeItem(at: resources) }
-        let model = resources.appendingPathComponent("Diarization/ls_eend_broken_100ms.mlmodelc")
-        try FileManager.default.createDirectory(at: model.appendingPathComponent("weights"), withIntermediateDirectories: true)
-        try Data([0]).write(to: model.appendingPathComponent("weights/weight.bin"))
         let diarizer = try #require(MeetingVoiceModel.makeDiarizer(in: resources))
         let failures = FailureBox()
         let tracker = MeetingVoiceTracker(diarizer: diarizer, onVoices: { _ in Issue.record("no voices expected") },
                                           onFailure: { failures.add($0) })
-        let chunk = MeetingAudioChunk(samples: [Float](repeating: 0, count: 800), sampleRate: 8_000, hostTime: 0)
+        let chunk = MeetingAudioChunk(samples: [Float](repeating: 0, count: 1_600), sampleRate: 16_000, hostTime: 0)
         tracker.append(chunk, at: 0)
         tracker.append(chunk, at: 0.1)
         tracker.finish()
         #expect(failures.messages.count == 1)
         #expect(failures.messages.first?.isEmpty == false)
-    }
-
-    /// The state check compares two runs of the same input, so the input must be
-    /// fixed and must carry sound that moves the model's state.
-    @Test
-    func theStateCheckSignalIsFixedAndAudible() {
-        let signal = LSEENDStateCheck.syntheticVoices(rate: 8_000, seconds: 2)
-        #expect(signal == LSEENDStateCheck.syntheticVoices(rate: 8_000, seconds: 2))
-        #expect(signal.count == 16_000)
-        let rms = (signal.reduce(0) { $0 + $1 * $1 } / Float(signal.count)).squareRoot()
-        #expect(rms > 0.05 && rms < 0.5)
     }
 }
 
@@ -184,38 +287,54 @@ private final class FailureBox: @unchecked Sendable {
 // MARK: - Real model (opt-in)
 
 /// A pinned model fetched with scripts/fetch-diarization-model.py. These tests run
-/// only when the test environment names that folder:
+/// only when the test environment names that folder (or a folder of such folders,
+/// one per preset):
 /// `TEST_RUNNER_SAYWING_DIARIZATION_MODELS=<folder> xcodebuild test ...`
 struct RealVoiceModel: CustomStringConvertible, Sendable {
-    let variant: String
-    let url: URL
-    var description: String { variant }
+    let preset: String
+    /// The fetched folder, laid out like the app's Diarization folder.
+    let folder: URL
+    var description: String { preset }
 
     static let available: [RealVoiceModel] = {
         guard let root = ProcessInfo.processInfo.environment["SAYWING_DIARIZATION_MODELS"] else { return [] }
-        return ["ami", "ch", "dih3"].compactMap { variant in
-            let url = URL(fileURLWithPath: root)
-                .appendingPathComponent("optimized/\(variant)/100ms/ls_eend_\(variant)_100ms.mlmodelc")
-            return FileManager.default.fileExists(atPath: url.appendingPathComponent("weights/weight.bin").path)
-                ? RealVoiceModel(variant: variant, url: url) : nil
+        let top = URL(fileURLWithPath: root)
+        let folders = [top] + ((try? FileManager.default.contentsOfDirectory(at: top, includingPropertiesForKeys: nil)) ?? [])
+            .sorted { $0.path < $1.path }
+        return folders.compactMap { folder in
+            let resources = Self.resources(for: folder)
+            return MeetingVoiceModel.bundled(in: resources).map { RealVoiceModel(preset: $0.preset, folder: folder) }
         }
     }()
 
-    /// Through the same lookup and factory as the app, from a resources folder that
-    /// holds only this model.
-    func makeDiarizer() throws -> (diarizer: any MeetingVoiceDiarizing, resources: URL) {
-        // A stable path: CoreML caches about 43 MB per model location, which a new
-        // folder for every run would pile up in the test host's caches.
-        let resources = FileManager.default.temporaryDirectory.appendingPathComponent("voice-model-\(variant)")
-        try? FileManager.default.removeItem(at: resources)
-        let folder = resources.appendingPathComponent("Diarization")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try FileManager.default.createSymbolicLink(
-            at: folder.appendingPathComponent(url.lastPathComponent), withDestinationURL: url)
-        return (try #require(MeetingVoiceModel.makeDiarizer(in: resources)), resources)
+    /// A stable resources folder whose Diarization folder is the fetched one: CoreML
+    /// keeps a compiled form per model location, which a new folder every run would
+    /// pile up in the test host's caches.
+    private static func resources(for folder: URL) -> URL {
+        let name = folder.path.replacingOccurrences(of: "/", with: "_")
+        let resources = FileManager.default.temporaryDirectory.appendingPathComponent("voice-model\(name)")
+        let link = resources.appendingPathComponent("Diarization")
+        if (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != folder.path {
+            try? FileManager.default.removeItem(at: resources)
+            try? FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+            try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: folder)
+        }
+        return resources
+    }
+
+    var resources: URL { Self.resources(for: folder) }
+
+    /// The model itself, loaded the way the app's preload loads it.
+    func load() async throws -> any MeetingVoiceDiarizing {
+        try await MeetingVoiceModel.loadDiarizer(in: resources)
+    }
+
+    /// Through the same lookup and factory as the app: the preload that stands in for
+    /// the model while it loads.
+    func makeDiarizer() throws -> any MeetingVoiceDiarizing {
+        try #require(MeetingVoiceModel.makeDiarizer(in: resources))
     }
 }
-
 /// Anchors `Bundle(for:)` to the test bundle that carries the speech fixtures.
 private final class VoiceFixtures {}
 
@@ -275,7 +394,7 @@ private struct VoiceTrack {
 }
 
 /// Reader A, reader B, reader A: two LibriVox readers of the committed fixtures, cut
-/// at the middle of A's clip. The fixtures are 8 kHz, which is also the model's rate.
+/// at the middle of A's clip. The fixtures are 8 kHz; the adapter brings them to the model's 16 kHz.
 private func recordedTrack() throws -> VoiceTrack {
     let female = try fixture("others-elli")
     var track = VoiceTrack(rate: 8_000)
@@ -401,76 +520,66 @@ struct RealVoiceModelTests {
     /// Feeds the adapter directly and measures it: load time, speed, memory, how late
     /// a label comes, and what ends up on disk.
     @Test(arguments: RealVoiceModel.available)
-    func twoRecordedReadersGetTheirOwnVoices(model: RealVoiceModel) throws {
+    func twoRecordedReadersGetTheirOwnVoices(model: RealVoiceModel) async throws {
         let track = try recordedTrack()
         let before = footprintMB()
         let clock = ContinuousClock()
-        var made: (diarizer: any MeetingVoiceDiarizing, resources: URL)!
-        let load = try clock.measure { made = try model.makeDiarizer() }
-        defer { try? FileManager.default.removeItem(at: made.resources) }
+        let started = clock.now
+        let diarizer = try await model.load()
+        let load = clock.now - started
         let loaded = footprintMB()
         var spans: [MeetingVoiceSpan] = []
         var lags: [TimeInterval] = []
         var peak = loaded
         let feed = try clock.measure {
             for chunk in track.chunks(of: 0.02) {
-                let new = try made.diarizer.append(chunk.samples, sampleRate: track.rate)
+                let new = try diarizer.append(chunk.samples, sampleRate: track.rate)
                 let heard = chunk.time + 0.02
                 lags += new.map { heard - $0.end }
                 spans += new
                 peak = max(peak, footprintMB())
             }
-            spans += try made.diarizer.finish()
+            spans += try diarizer.finish()
         }
         let score = VoiceScore(spans, track)
         let feedSeconds = Double(feed.components.seconds) + Double(feed.components.attoseconds) * 1e-18
         lags.sort()
-        print("VOICE-MODEL recorded \(model.variant): \(score)")
+        print("VOICE-MODEL recorded \(model.preset): \(score)")
         print(String(format: "VOICE-MODEL cost %@: load %@, real-time factor %.4f, footprint %.0f -> %.0f -> peak %.0f MB, %d spans, label lag median %.2f s max %.2f s",
-                     model.variant, "\(load)", feedSeconds / track.duration, before, loaded, peak, spans.count,
+                     model.preset, "\(load)", feedSeconds / track.duration, before, loaded, peak, spans.count,
                      lags.isEmpty ? .nan : lags[lags.count / 2], lags.last ?? .nan))
-        #expect(score.separatesReaders, "\(model.variant): \(score)")
-        #expect(score.share >= requiredShare, "\(model.variant): \(score)")
+        #expect(score.separatesReaders, "\(model.preset): \(score)")
+        #expect(score.share >= requiredShare, "\(model.preset): \(score)")
         #expect(feedSeconds / track.duration < 0.5, "must keep up with live audio next to two recognisers")
         #expect(spans.allSatisfy { $0.end <= track.duration + 0.001 })
     }
 
-    /// With CoreML's cache, FluidAudio's in-place state is exact, so the check that
-    /// keeps the adapter off CoreML's other CPU path must pass here. Without the cache
-    /// it fails; that needs a fresh process, see scripts/diarization-eval/README.md.
-    @Test(arguments: RealVoiceModel.available)
-    func theInPlaceStateMatchesSeparateState(model: RealVoiceModel) throws {
-        let difference = try LSEENDStateCheck.difference(modelURL: model.url)
-        print("VOICE-MODEL state check \(model.variant): \(difference)")
-        #expect(difference <= LSEENDStateCheck.tolerance)
-    }
-
-    /// The production path: 48 kHz chunks of 10 ms through the tracker's queue.
+    /// The production path: the preload that loads the model while the transcript
+    /// already runs, then 48 kHz chunks of 10 ms through the tracker's queue. Audio
+    /// from before the model was ready gets its voices too.
     @Test(arguments: RealVoiceModel.available)
     func theLivePathAt48kHzSeparatesThemToo(model: RealVoiceModel) throws {
         let track = try recordedTrack().resampled(to: 48_000)
-        let made = try model.makeDiarizer()
-        defer { try? FileManager.default.removeItem(at: made.resources) }
         let box = SpanBox()
         // Live audio arrives in real time; this test feeds it as fast as it can.
-        let tracker = MeetingVoiceTracker(diarizer: made.diarizer, backlogLimit: 3_600,
+        let tracker = MeetingVoiceTracker(diarizer: try model.makeDiarizer(), backlogLimit: 3_600,
                                           onVoices: { box.add($0) }, onFailure: { box.fail($0) })
         for chunk in track.chunks(of: 0.01) {
             tracker.append(MeetingAudioChunk(samples: chunk.samples, sampleRate: track.rate, hostTime: 0), at: chunk.time)
         }
         tracker.finish()
         let score = VoiceScore(box.spans, track)
-        print("VOICE-MODEL live-48k \(model.variant): \(score)")
+        print("VOICE-MODEL live-48k \(model.preset): \(score)")
         #expect(box.failures.isEmpty)
-        #expect(score.separatesReaders, "\(model.variant): \(score)")
-        #expect(score.share >= requiredShare, "\(model.variant): \(score)")
+        #expect(score.separatesReaders, "\(model.preset): \(score)")
+        #expect(score.share >= requiredShare, "\(model.preset): \(score)")
     }
 
     /// Three system voices, two turns each, generated at the rate a call delivers.
     /// Synthetic speech: it says little about real people, but it has wider bands
-    /// than the recordings before the model's own 8 kHz input.
+    /// than the 8 kHz recordings.
     @Test(arguments: RealVoiceModel.available)
-    func threeSystemVoicesTakeTurns(model: RealVoiceModel) throws {
+    func threeSystemVoicesTakeTurns(model: RealVoiceModel) async throws {
         let rate = 48_000
         let voices = Array(try systemVoices("de_DE").filter { !$0.contains("Eloquence") }.prefix(3))
         try #require(voices.count == 3, "needs three installed German voices, found \(voices)")
@@ -487,22 +596,21 @@ struct RealVoiceModelTests {
             track.add(try systemSpeech(line, voice: voices[index % voices.count], rate: rate), reader: index % voices.count)
             track.samples += [Float](repeating: 0, count: rate / 2)
         }
-        let made = try model.makeDiarizer()
-        defer { try? FileManager.default.removeItem(at: made.resources) }
+        let diarizer = try await model.load()
         var spans: [MeetingVoiceSpan] = []
-        for chunk in track.chunks(of: 0.01) { spans += try made.diarizer.append(chunk.samples, sampleRate: track.rate) }
-        spans += try made.diarizer.finish()
+        for chunk in track.chunks(of: 0.01) { spans += try diarizer.append(chunk.samples, sampleRate: track.rate) }
+        spans += try diarizer.finish()
         let score = VoiceScore(spans, track)
-        print("VOICE-MODEL system-voices \(model.variant) \(voices): \(score)")
-        #expect(score.separatesReaders, "\(model.variant): \(score)")
-        #expect(score.share >= requiredShare, "\(model.variant): \(score)")
+        print("VOICE-MODEL system-voices \(model.preset) \(voices): \(score)")
+        #expect(score.separatesReaders, "\(model.preset): \(score)")
+        #expect(score.share >= requiredShare, "\(model.preset): \(score)")
     }
 
     /// Loading may leave CoreML's compiled form of the model in the app's caches. The
     /// session itself adds nothing there, and nothing to FluidAudio's download cache
     /// or the temporary folder: no audio and no state about the voices.
     @Test(arguments: RealVoiceModel.available)
-    func aSessionWritesNothingAfterLoadingTheModel(model: RealVoiceModel) throws {
+    func aSessionWritesNothingAfterLoadingTheModel(model: RealVoiceModel) async throws {
         let manager = FileManager.default
         let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let caches = manager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -514,11 +622,10 @@ struct RealVoiceModelTests {
         let temporary = manager.temporaryDirectory
         let beforeLoad = [support.appendingPathComponent("FluidAudio"), temporary].map(files)
         let track = try recordedTrack()
-        let made = try model.makeDiarizer()
-        defer { try? manager.removeItem(at: made.resources) }
+        let diarizer = try await model.load()
         let afterLoad = files(caches)
-        for chunk in track.chunks(of: 0.02) { _ = try made.diarizer.append(chunk.samples, sampleRate: track.rate) }
-        _ = try made.diarizer.finish()
+        for chunk in track.chunks(of: 0.02) { _ = try diarizer.append(chunk.samples, sampleRate: track.rate) }
+        _ = try diarizer.finish()
         let cached = files(caches).subtracting(afterLoad)
         let downloads = files(support.appendingPathComponent("FluidAudio")).subtracting(beforeLoad[0])
         // The temporary folder is shared with the user's other processes, so only audio

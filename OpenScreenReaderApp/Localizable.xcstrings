@@ -4311,6 +4311,16 @@
         }
       }
     },
+    "The model that tells voices apart could not be loaded. Reinstall Saywing to restore it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Modell, das Stimmen unterscheidet, konnte nicht geladen werden. Installiere Saywing erneut, um es wiederherzustellen."
+          }
+        }
+      }
+    },
     "The model turns your speech into text on this Mac.": {
       "localizations": {
         "de": {
@@ -5117,16 +5127,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "⌥⇧Leertaste ist für das Diktieren reserviert. Wähle einen anderen Vorlese-Kurzbefehl."
-          }
-        }
-      }
-    },
-    "The voice model could not be prepared reliably. Free some disk space and start again.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Stimmmodell konnte nicht zuverlässig vorbereitet werden. Gib etwas Speicherplatz frei und starte erneut."
           }
         }
       }

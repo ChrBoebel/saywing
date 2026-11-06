@@ -56,7 +56,7 @@ final class MeetingController: ObservableObject {
   private let provider: any MeetingRecognizerProviding
   private let makeMicrophone: @MainActor () -> any MeetingAudioSource
   private let makeSystemAudio: @MainActor () -> (any MeetingAudioSource)?
-  private let makeVoiceDiarizer: @Sendable () async -> (any MeetingVoiceDiarizing)?
+  private let makeVoiceDiarizer: @MainActor () -> (any MeetingVoiceDiarizing)?
   private let language: @MainActor () -> DictationLanguage
   private let interfaceSounds: (any InterfaceSoundPlaying)?
   private let hostClock: () -> UInt64
@@ -74,6 +74,9 @@ final class MeetingController: ObservableObject {
   private var recognizer: (any MeetingRecognizing)?
   private var router: MeetingAudioRouter?
   private var voices: MeetingVoiceTracker?
+  /// The voice model, loading in the background from the consent step on, until a
+  /// transcript takes it. Dropping it cancels the load and frees the model.
+  private var preparedVoices: (any MeetingVoiceDiarizing)?
   private var microphone: (any MeetingAudioSource)?
   private var system: (any MeetingAudioSource)?
   private var startHost: UInt64 = 0
@@ -84,6 +87,7 @@ final class MeetingController: ObservableObject {
   private var lifecycle: Task<Void, Never>?
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
   private var window: NSWindow?
+  private var windowObserver: NSObjectProtocol?
 
   init(
     provider: any MeetingRecognizerProviding = SystemMeetingRecognizerProvider(),
@@ -91,7 +95,7 @@ final class MeetingController: ObservableObject {
     makeSystemAudio: @escaping @MainActor () -> (any MeetingAudioSource)? = {
       if #available(macOS 14.2, *) { SystemAudioTapSource() } else { nil }
     },
-    makeVoiceDiarizer: @escaping @Sendable () async -> (any MeetingVoiceDiarizing)? = { MeetingVoiceModel.makeDiarizer() },
+    makeVoiceDiarizer: @escaping @MainActor () -> (any MeetingVoiceDiarizing)? = { MeetingVoiceModel.makeDiarizer() },
     language: @escaping @MainActor () -> DictationLanguage = {
       DictationLanguage(rawValue: UserDefaults.standard.integer(forKey: "dictationLanguage.v1")) ?? .automatic
     },
@@ -127,6 +131,7 @@ final class MeetingController: ObservableObject {
 
   isolated deinit {
     for (center, observer) in observers { center.removeObserver(observer) }
+    if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
     shutdown()
   }
 
@@ -148,7 +153,9 @@ final class MeetingController: ObservableObject {
     guard phase == .idle || phase == .consent || isUnavailable else { return }
     notice = nil
     switch await provider.availability(for: language()) {
-    case .available: phase = .consent
+    case .available:
+      phase = .consent
+      prepareVoices()
     case .unsupportedSystem:
       phase = .unavailable(String(localized: "Meeting transcripts need macOS 26 or later, with on-device speech recognition."))
     case let .languageMissing(name):
@@ -196,13 +203,11 @@ final class MeetingController: ObservableObject {
       await recognizer.cancel()
       return
     }
-    // Loading the voice model may take a moment; it happens off the main thread
-    // and a missing model only means the others stay one speaker.
-    let diarizer = await makeVoiceDiarizer()
-    guard gate.accepts(id), phase == .starting else {
-      await recognizer.cancel()
-      return
-    }
+    // The model has been loading since the consent step; if it is not ready yet,
+    // the others' audio waits for it. A missing model only means the others stay
+    // one speaker.
+    let diarizer = preparedVoices
+    preparedVoices = nil
     if let diarizer {
       voices = MeetingVoiceTracker(
         diarizer: diarizer,
@@ -295,9 +300,22 @@ final class MeetingController: ObservableObject {
       await recognizer?.cancel()
     }
     resetTranscript()
+    preparedVoices = nil
     notice = nil
     phase = .idle
     window?.close()
+  }
+
+  /// The window closed. A transcript keeps running; a voice model prepared for one
+  /// that never started is freed.
+  func windowClosed() {
+    guard !isRecording else { return }
+    preparedVoices = nil
+  }
+
+  /// Starts loading the voice model for the transcript the consent step may start.
+  private func prepareVoices() {
+    if preparedVoices == nil { preparedVoices = makeVoiceDiarizer() }
   }
 
   /// Quitting: release the devices immediately; the transcript dies with the process.
@@ -305,6 +323,7 @@ final class MeetingController: ObservableObject {
     gate.cancel()
     stopSources()
     voices?.cancel()
+    preparedVoices = nil
     if let recognizer { Task { await recognizer.cancel() } }
     recognizer = nil
   }
@@ -449,6 +468,7 @@ final class MeetingController: ObservableObject {
     Task { await recognizer?.cancel() }
     notice = message
     phase = transcript.isEmpty ? .consent : .finished
+    if phase == .consent { prepareVoices() }
   }
 
   private func stopSources() {
@@ -556,6 +576,9 @@ final class MeetingController: ObservableObject {
       window.contentViewController = NSHostingController(rootView: MeetingView(controller: self))
       // No frame autosave: the transcript adds no preference keys.
       window.center()
+      windowObserver = NotificationCenter.default.addObserver(
+        forName: NSWindow.willCloseNotification, object: window, queue: .main
+      ) { [weak self] _ in MainActor.assumeIsolated { self?.windowClosed() } }
       self.window = window
     }
     NSApp.activate(ignoringOtherApps: true)
