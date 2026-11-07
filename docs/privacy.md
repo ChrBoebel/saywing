@@ -213,7 +213,7 @@ Setup additionally saves the dictation shortcut, optional Fn setting and the mod
 [ADR 0008](decisions/0008-meeting-speakers-and-pdf.md).
 
 - **Telling voices apart:**
-  - Only in builds that carry the voice model. Since 2026-11-07 that is Nemotron 3 Diarization (NVIDIA, CoreML conversion by Fluid Inference, OpenMDW-1.1); whether public builds carry it awaits the maintainer's license decision (ADR 0008). In a build without it, all other participants stay "Others" and no voice analysis runs.
+  - Only in builds that carry the voice model. Since 2026-11-07 that is Nemotron 3 Diarization (NVIDIA, CoreML conversion by Fluid Inference, OpenMDW-1.1); public builds carry it by maintainer decision of 2026-11-07 (ADR 0008). In a build without it, all other participants stay "Others" and no voice analysis runs.
   - Only the "Others" track, live on the device. The model is a CoreML model that runs inside the Saywing app process, on the Neural Engine where the Mac has one (otherwise GPU and CPU), not in the sandboxed speech or dictation worker.
   - No download, no network connection. FluidAudio's download code is linked into the app but is never called, and its offline switch is on.
   - The model starts loading when the consent step appears, so that it is ready when the transcript starts. Nothing is analysed before you start the transcript, and closing the window or discarding frees the model again.

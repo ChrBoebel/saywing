@@ -22,5 +22,11 @@
       "Fresh-account permission denial/grant and clipboard restoration",
       "Physical Intel update and GUI relaunch"
     ]
+  },
+  "voice_model_license_review": {
+    "approved": true,
+    "model": "Nemotron 3 Diarization",
+    "revision": "25a90f97f254428d4b30374b76af9c74fdee8327",
+    "note": "2026-11-07 maintainer decision: public builds carry NVIDIA Nemotron 3 Diarization (FluidInference/nemotron-3-diarization-coreml, preset fast, fp16, revision 25a90f97f254428d4b30374b76af9c74fdee8327) under OpenMDW-1.1, deliberately without external counsel and without written answers from NVIDIA or the Linguistic Data Consortium. The maintainer accepts the training-data risks (LDC corpora Fisher English, DIHARD III and CALLHOME; David AI data licensed to NVIDIA under agreement) and keeps the OpenMDW-1.1 text and the notices of origin with every build. If a rights holder objects, SAYWING_BUNDLE_DIARIZATION_MODEL is turned off and a new release is published. See ADR 0008."
   }
 }

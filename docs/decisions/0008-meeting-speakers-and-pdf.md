@@ -1,6 +1,6 @@
 # ADR 0008: Telling meeting speakers apart, and PDF export
 
-- Status: accepted. The runtime adapter is integrated and pinned. By maintainer decision of 2026-11-04, public builds were to carry the LS-EEND DIHARD III variant (see "Model decision"); release 0.1.30 does not carry it. Since 2026-11-07 the code uses Nemotron 3 Diarization instead; that model change is **pending the maintainer's license decision** (see "Model change"), and until it is recorded a public build with the model stops at the release gate.
+- Status: accepted. The runtime adapter is integrated and pinned. By maintainer decision of 2026-11-04, public builds were to carry the LS-EEND DIHARD III variant (see "Model decision"); release 0.1.30 does not carry it. Since 2026-11-07 the code uses Nemotron 3 Diarization instead, and by maintainer decision of the same day public builds carry it (see "Model change").
 - Date: 2026-10-18
 - Decision: project maintainer, on a proposal to tell the voices of the other participants apart locally, let the user name them, and export the transcript as PDF.
 - Extends: [ADR 0006](0006-local-meeting-transcript.md). That ADR listed speaker diarisation as out of scope until separately decided. This ADR is that decision.
@@ -21,7 +21,7 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 ## Decision
 
 1. **Diarise only the "Others" track, live, on the device.**
-   - The model is NVIDIA's Nemotron 3 Diarization (since 2026-11-07, pending the license decision under "Model change"; before, LS-EEND), a streaming end-to-end model as CoreML export. It needs no separate embedding or clustering step and tracks up to 8 speakers at 10 ms.
+   - The model is NVIDIA's Nemotron 3 Diarization (since 2026-11-07, see "Model change"; before, LS-EEND), a streaming end-to-end model as CoreML export. It needs no separate embedding or clustering step and tracks up to 8 speakers at 10 ms.
    - The runtime is FluidAudio's `Nemotron3Diarizer`, in the app's own process, on the Neural Engine where the Mac has one, not in the sandboxed Python worker.
    - Voices are shown as "Speaker 1", "Speaker 2" and so on, numbered in the order they first speak.
 2. **No audio kept for diarisation.**
@@ -61,7 +61,7 @@ The "Others" track is clean digital audio from the meeting app, without room rev
 | Size | 199.1 MB (`weights/weight.bin` 198.6 MB, graph 0.5 MB, silence embedding 2 KB) |
 | Hashes | Every file of the measured presets (`fast`, `fast32`, `fast32-split-w8a8`) is pinned in `Runtime/Diarization/nemotron-3-manifest.json` with size and SHA-256 |
 | Runtime code | [FluidAudio](https://github.com/FluidInference/FluidAudio) 0.18.2 (revision `e396cf780c4abf8e395087467c0585d3b0d17f68`), Apache-2.0, exact-version reference with `traits = (Diarizer)` in the Xcode project. Linked with it: `FastClusterWrapper` (fastcluster, BSD 2-Clause), `MachTaskSelfWrapper`, and VBx-derived clustering (Apache-2.0). Not linked: TTS code, G2P resources, the prebuilt NeMo binary. Notices: `docs/licenses/FluidAudio-0.18.2.txt`. |
-| Delivery | Only in builds that carry it: `scripts/release.py --diarization-model`, which the release workflow passes only when the repository variable `SAYWING_BUNDLE_DIARIZATION_MODEL` is exactly `true`. A public build with it also needs `voice_model_license_review` for exactly this model and revision in the release approval (not recorded). Never downloaded at runtime. Weights are not committed to Git. |
+| Delivery | Only in builds that carry it: `scripts/release.py --diarization-model`, which the release workflow passes only when the repository variable `SAYWING_BUNDLE_DIARIZATION_MODEL` is exactly `true`. A public build with it also needs `voice_model_license_review` for exactly this model and revision in the release approval (recorded 2026-11-07 for both architectures). Never downloaded at runtime. Weights are not committed to Git. |
 
 Earlier model (until 2026-11-07): LS-EEND, `FluidInference/ls-eend-coreml` revision `28ce1b1f8ef186729df63b3886fbaae7bc10c4a1`, 44.6 MB per variant, MIT as published by the exporter, pretrained on Switchboard, Switchboard Cellular and NIST SRE 2004–2008 (LDC) with MUSAN noise and fine-tuned on AMI, CALLHOME, DIHARD II or DIHARD III. Its manifest, notice and state check were removed with its adapter; they are in the history up to commit `96925ef`.
 
@@ -85,14 +85,14 @@ Public builds carry the DIHARD III variant (`dih3`, up to 10 speakers), by maint
 - **What the analysis of 2026-11-04 found (not legal advice):** no variant is free of LDC data, because all share the pretraining above; the LDC agreements do not settle whether trained weights are covered; and the authors' MIT grant does not explicitly name the weights. It recommended asking LDC and the authors in writing before bundling. The maintainer decided to go ahead and accepts this risk.
 - **If a rights holder objects:** turn `SAYWING_BUNDLE_DIARIZATION_MODEL` off and publish a new release. Without the model the others stay "Others", and nothing else depends on it.
 
-## Model change — 2026-11-07, pending the maintainer's license decision
+## Model change — 2026-11-07, decided by the maintainer
 
-Proposal: replace LS-EEND with NVIDIA's Nemotron 3 Diarization (preset `fast`). The code, the manifest and the notice are in place. **No license decision is recorded.** Until the maintainer records one (`voice_model_license_review` in the release approval, for model "Nemotron 3 Diarization" and revision `25a90f97…`), `scripts/release.py --public-release --diarization-model` stops before building; with `SAYWING_BUNDLE_DIARIZATION_MODEL` still `true`, the next public release fails until the decision is recorded or the variable is turned off.
+Change: replace LS-EEND with NVIDIA's Nemotron 3 Diarization (preset `fast`). The code, the manifest and the notice are in place. **Decision (maintainer, 2026-11-07):** public builds carry Nemotron 3 Diarization (preset `fast`, fp16, revision `25a90f97f254428d4b30374b76af9c74fdee8327`), deliberately without external counsel and without written answers from NVIDIA or the Linguistic Data Consortium. The maintainer accepts the training-data risks named below. The decision is recorded as `voice_model_license_review` in both release approvals; it covers only this model and revision, so a new model or revision makes `scripts/release.py --public-release --diarization-model` stop before building until it gets its own decision.
 
 - **Why:** on the dev split of the evaluation it is better than LS-EEND in every group and condition (all runs 96.4 % correct and the exact voice count in 93 % of runs, against 89.7 % and 71 %); on the test split, run once afterwards, 94.9 % and 94 % against 84.2 % and 57 %, with the largest gains for similar voices and short turns (details under "Verification so far"). It tracks up to 8 voices with a 1.04 s input latency.
 - **Configuration**, chosen on dev with a rule written down before (harness README): highest correct share; within 0.5 points the lower label lag wins, then the smaller model; label-lag median at most 2 s. `fast32` fp16 had the highest share (96.6 %), `fast32-split-w8a8` (96.5 %, 102 MB) and `fast` fp16 (96.4 %) were within 0.5 points; `fast` has the lowest label lag (median 0.33 s against 0.52 s). FluidInference publishes no W8A8 build of `fast`. The W8A8 build would halve the size but also takes 22 s instead of 6.5 s for its first load.
-- **License and data, for the decision (not legal advice):** OpenMDW-1.1 is a permissive grant by NVIDIA, which permits commercial use and redistribution if the agreement and the notices of origin are kept; it has a patent-litigation termination clause and leaves clearing third-party rights to the user. NVIDIA, a large rights holder, is the licensor of the weights, unlike LS-EEND, where the authors never confirmed that MIT covers the checkpoints. The training data still include Linguistic Data Consortium corpora (Fisher English, DIHARD III, CALLHOME), so the open question of whether LDC terms reach trained weights is comparable to LS-EEND's; the data also include David AI recordings "licensed under agreement" to NVIDIA. The grant covers no dataset.
-- **If not approved:** turn `SAYWING_BUNDLE_DIARIZATION_MODEL` off. LS-EEND is no longer in the code; going back means reverting this change.
+- **License and data, the basis of the decision (not legal advice):** OpenMDW-1.1 is a permissive grant by NVIDIA, which permits commercial use and redistribution if the agreement and the notices of origin are kept; it has a patent-litigation termination clause and leaves clearing third-party rights to the user. NVIDIA, a large rights holder, is the licensor of the weights, unlike LS-EEND, where the authors never confirmed that MIT covers the checkpoints. The training data still include Linguistic Data Consortium corpora (Fisher English, DIHARD III, CALLHOME), so the open question of whether LDC terms reach trained weights is comparable to LS-EEND's; the data also include David AI recordings "licensed under agreement" to NVIDIA. The grant covers no dataset.
+- **If a rights holder objects:** turn `SAYWING_BUNDLE_DIARIZATION_MODEL` off and publish a new release; without the model the others stay "Others". LS-EEND is no longer in the code; going back to it means reverting this change and a new decision.
 
 ## Open
 
@@ -106,7 +106,7 @@ Proposal: replace LS-EEND with NVIDIA's Nemotron 3 Diarization (preset `fast`). 
   - latency of labels.
 - CPU and memory over 60 and 120 minutes with both transcribers running.
 - A file-system check that no audio or model state is written during a session.
-- License chain of the bundled model, including its training datasets, before a public release (for Nemotron 3: the pending decision under "Model change").
+- License chain of the bundled model, including its training datasets, before a public release (for Nemotron 3: decided 2026-11-07 under "Model change", with the training-data risks accepted).
 
 ## Verification so far
 

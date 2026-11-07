@@ -101,8 +101,18 @@ class ApprovalTests(unittest.TestCase):
 
     def test_the_general_license_review_does_not_cover_the_voice_model(self):
         approval = json.loads((REPO / 'release/release-approval.json').read_text())
+        approval.pop('voice_model_license_review')
+        self.assertIs(approval['license_review'], True)
         with self.assertRaisesRegex(ValueError, 'SAYWING_BUNDLE_DIARIZATION_MODEL'):
             self.check(approval)
+
+    def test_both_architectures_record_the_maintainer_decision(self):
+        # Decided 2026-11-07 (ADR 0008): public builds may carry exactly this model and revision.
+        for name in ('release-approval.json', 'release-approval-x86_64.json'):
+            with self.subTest(name):
+                release.require_voice_model_approval(REPO / 'release' / name)
+                self.assertTrue(json.loads((REPO / 'release' / name).read_text())
+                                ['voice_model_license_review']['note'].startswith('2026-11-07 maintainer decision'))
 
     def test_only_a_decision_for_this_model_and_revision_counts(self):
         manifest = json.loads(MANIFEST.read_text())
