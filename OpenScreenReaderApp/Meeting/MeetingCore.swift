@@ -50,8 +50,12 @@ struct MeetingVoice: Equatable, Identifiable {
 struct MeetingTranscriptEntry: Identifiable, Equatable {
   let speaker: MeetingSpeaker
   var voice: Int? = nil
+  /// The voice's number ("Speaker 2"), kept under a name too; it picks the colour.
+  var number: Int? = nil
   var label: String
   let start: TimeInterval
+  /// Where the turn's last word ends; with `start`, the stretch a correction moves.
+  var end: TimeInterval
   let text: String
   let pending: String
   var id: String { "\(speaker.rawValue)-\(voice.map(String.init) ?? "")-\(start)" }
@@ -66,14 +70,38 @@ struct MeetingTranscript: Equatable {
   private(set) var voiceSpans: [MeetingVoiceSpan] = []
   private var names: [Int: String] = [:]
   private var mergedInto: [Int: Int] = [:]
+  /// Turns the user gave to another voice. The latest correction of a moment wins,
+  /// over earlier ones and over every span the diarizer reports, then or later.
+  private var corrections: [Correction] = []
+  /// People the user added for a turn, with the number each took. Their voices are
+  /// negative, so they never meet a voice of the model.
+  private var newPeople: [Int: Int] = [:]
+  /// The number of each voice, from the last change.
+  private var numbers: [Int: Int] = [:]
   private static let longestVoiceSpan: TimeInterval = 30
   /// Visible turns in time order, derived once per change. SwiftUI reads this on
   /// every render (five times a second while live); the echo filter is quadratic.
   private(set) var entries: [MeetingTranscriptEntry] = []
 
+  private struct Correction: Equatable {
+    let start: TimeInterval
+    let end: TimeInterval
+    let voice: Int
+  }
+
+  /// One voice's words inside a recognition result. `heard` is what the diarizer
+  /// said before any correction, in order; it alone decides the numbers.
+  private struct Part {
+    let start: TimeInterval
+    let end: TimeInterval
+    let voice: Int?
+    let heard: [Int]
+    let text: String
+  }
+
   /// Volatile results replace each other; a final result replaces them all.
   mutating func apply(_ recognition: MeetingRecognition) {
-    defer { entries = derivedEntries() }
+    defer { derive() }
     let text = recognition.text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard recognition.isFinal else {
       volatile[recognition.speaker] = text.isEmpty ? nil : recognition
@@ -90,7 +118,7 @@ struct MeetingTranscript: Equatable {
 
   /// Marks a stretch where the microphone only heard the others through the speakers.
   mutating func addEcho(_ span: ClosedRange<TimeInterval>) {
-    defer { entries = derivedEntries() }
+    defer { derive() }
     var merged = span
     var kept: [ClosedRange<TimeInterval>] = []
     for existing in echoSpans {
@@ -107,7 +135,7 @@ struct MeetingTranscript: Equatable {
   /// Adds a stretch of one voice from the diarizer; it may arrive after the text.
   mutating func addVoice(_ span: MeetingVoiceSpan) {
     guard span.end > span.start else { return }
-    defer { entries = derivedEntries() }
+    defer { derive() }
     var start = span.start
     while start < span.end {
       let end = min(span.end, start + Self.longestVoiceSpan)
@@ -120,7 +148,7 @@ struct MeetingTranscript: Equatable {
 
   /// Names a voice in every turn and the export; an empty name brings the number back.
   mutating func rename(voice: Int, to name: String) {
-    defer { entries = derivedEntries() }
+    defer { derive() }
     let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     names[resolved(voice)] = name.isEmpty ? nil : name
   }
@@ -130,9 +158,35 @@ struct MeetingTranscript: Equatable {
   mutating func merge(voice: Int, into target: Int) {
     let (from, to) = (resolved(voice), resolved(target))
     guard from != to else { return }
-    defer { entries = derivedEntries() }
+    defer { derive() }
     mergedInto[from] = to
     names[from] = nil
+  }
+
+  /// One turn of the others that the diarizer gave the wrong voice: its words, and
+  /// any the recogniser places there later, belong to `voice` from now on. The
+  /// rest of the old voice stays where it is. Only the others' voiced turns move.
+  mutating func reassign(_ turn: MeetingTranscriptEntry, to voice: Int) {
+    guard turn.speaker == .others, turn.voice != nil, turn.end >= turn.start else { return }
+    defer { derive() }
+    corrections.append(Correction(start: turn.start, end: turn.end, voice: voice))
+  }
+
+  /// Gives a turn to someone the diarizer did not hear as a voice of their own. The
+  /// new person takes the next free number and keeps it.
+  mutating func reassignToNewPerson(_ turn: MeetingTranscriptEntry) {
+    guard turn.speaker == .others, turn.voice != nil, turn.end >= turn.start else { return }
+    let voice = -(newPeople.count + 1)
+    newPeople[voice] = nextNumber
+    reassign(turn, to: voice)
+  }
+
+  /// What a new person would be called: "Speaker 3" next to two voices.
+  var newPersonLabel: String { String(localized: "Speaker \(nextNumber)") }
+
+  private var nextNumber: Int {
+    let used = Set(numbers.values)
+    return (1...).first { !used.contains($0) } ?? 1
   }
 
   var isEmpty: Bool { entries.isEmpty }
@@ -149,41 +203,49 @@ struct MeetingTranscript: Equatable {
   /// Visible turns in time order. "Me" loses what was only the others through the
   /// speakers: whole segments inside an echo, words timed inside one, and runs of
   /// three or more words the others said at the same moment. The others split by
-  /// voice where the diarizer heard one.
-  private func derivedEntries() -> [MeetingTranscriptEntry] {
+  /// voice where the diarizer heard one, and where the user corrected it.
+  private mutating func derive() {
     let items = (finals + volatile.values.sorted { $0.speaker.rawValue < $1.speaker.rawValue })
       .compactMap { item in visibleText(of: item).map { (item: item, text: $0) } }
       .flatMap { item, text in
         voiced(item, text).map { (speaker: item.speaker, isFinal: item.isFinal, part: $0) }
       }
       .sorted { $0.part.start < $1.part.start }
-    // Numbers follow the order in which voices first had words, before any merge,
-    // so a merge or a late voice never renumbers the others.
-    var numbers: [Int: Int] = [:]
-    for item in items {
-      if let voice = item.part.voice, numbers[voice] == nil { numbers[voice] = numbers.count + 1 }
+    // Numbers follow the order in which the diarizer first heard words of a voice,
+    // before any merge or correction, so neither a merge, a moved turn nor a late
+    // voice renumbers the others. A new person keeps the number it was given.
+    var numbers = newPeople
+    func number(_ voice: Int) {
+      guard numbers[voice] == nil else { return }
+      let used = Set(numbers.values)
+      numbers[voice] = (1...).first { !used.contains($0) }
     }
-    var turns: [(speaker: MeetingSpeaker, voice: Int?, start: TimeInterval, text: [String], pending: [String])] = []
+    items.forEach { $0.part.heard.forEach(number) }
+    var turns: [(speaker: MeetingSpeaker, voice: Int?, start: TimeInterval, end: TimeInterval, text: [String], pending: [String])] = []
     for item in items {
       let voice = item.part.voice.map(resolved)
+      if let voice { number(voice) }
       if turns.last?.speaker != item.speaker || turns.last?.voice != voice {
-        turns.append((item.speaker, voice, item.part.start, [], []))
+        turns.append((item.speaker, voice, item.part.start, item.part.end, [], []))
       }
+      turns[turns.count - 1].end = max(turns[turns.count - 1].end, item.part.end)
       if item.isFinal {
         turns[turns.count - 1].text.append(item.part.text)
       } else {
         turns[turns.count - 1].pending.append(item.part.text)
       }
     }
-    return turns.map { turn in
+    self.numbers = numbers
+    entries = turns.map { turn in
+      let number = turn.voice.flatMap { numbers[$0] }
       let label: String
       if let voice = turn.voice {
-        label = names[voice] ?? String(localized: "Speaker \(numbers[voice] ?? numbers.count + 1)")
+        label = names[voice] ?? String(localized: "Speaker \(number ?? numbers.count + 1)")
       } else {
         label = turn.speaker.label
       }
       return MeetingTranscriptEntry(
-        speaker: turn.speaker, voice: turn.voice, label: label, start: turn.start,
+        speaker: turn.speaker, voice: turn.voice, number: number, label: label, start: turn.start, end: turn.end,
         text: turn.text.joined(separator: " "), pending: turn.pending.joined(separator: " "))
     }
   }
@@ -203,28 +265,51 @@ struct MeetingTranscript: Equatable {
 
   /// The others' text in parts of one voice each. With word timings a segment
   /// splits where the voice changes; words the diarizer missed stay with the
-  /// words around them. Raw voice numbers; merges apply later.
-  private func voiced(_ item: MeetingRecognition, _ text: String) -> [(start: TimeInterval, voice: Int?, text: String)] {
-    guard item.speaker == .others, !voiceSpans.isEmpty else { return [(item.start, nil, text)] }
-    let whole = dominantVoice(item.start, item.end)
-    guard !item.pieces.isEmpty else { return [(item.start, whole, text)] }
-    var voices = item.pieces.map { dominantVoice($0.start, $0.end) }
-    guard let first = voices.first(where: { $0 != nil }) else { return [(item.start, whole, text)] }
-    var last = first
-    for index in voices.indices {
-      if let voice = voices[index] { last = voice } else { voices[index] = last }
+  /// words around them, and a correction overrides the diarizer for its words.
+  /// Raw voice numbers; merges apply later.
+  private func voiced(_ item: MeetingRecognition, _ text: String) -> [Part] {
+    guard item.speaker == .others, !voiceSpans.isEmpty else {
+      return [Part(start: item.start, end: item.end, voice: nil, heard: [], text: text)]
     }
-    if Set(voices.map { $0 ?? -1 }).count == 1 { return [(item.start, voices[0], text)] }
-    var parts: [(start: TimeInterval, voice: Int?, words: [String])] = []
-    for (piece, voice) in zip(item.pieces, voices) {
-      if parts.last?.voice != voice { parts.append((piece.start, voice, [])) }
+    let whole = dominantVoice(item.start, item.end)
+    guard !item.pieces.isEmpty else {
+      let voice = corrected(at: (item.start + item.end) / 2) ?? whole
+      return [Part(start: item.start, end: item.end, voice: voice, heard: whole.map { [$0] } ?? [], text: text)]
+    }
+    var heard = item.pieces.map { dominantVoice($0.start, $0.end) }
+    if let first = heard.first(where: { $0 != nil }) {
+      var last = first
+      for index in heard.indices {
+        if let voice = heard[index] { last = voice } else { heard[index] = last }
+      }
+    } else {
+      heard = heard.map { _ in whole }
+    }
+    let voices = zip(item.pieces, heard).map { piece, voice in corrected(at: (piece.start + piece.end) / 2) ?? voice }
+    func inOrder(_ voices: ArraySlice<Int?>) -> [Int] {
+      var seen = Set<Int>()
+      return voices.compactMap { $0 }.filter { seen.insert($0).inserted }
+    }
+    if voices.allSatisfy({ $0 == voices[0] }) {
+      return [Part(start: item.start, end: item.end, voice: voices[0], heard: inOrder(heard[...]), text: text)]
+    }
+    var parts: [(start: TimeInterval, end: TimeInterval, voice: Int?, first: Int, words: [String])] = []
+    for (index, (piece, voice)) in zip(item.pieces, voices).enumerated() {
+      if parts.isEmpty || parts[parts.count - 1].voice != voice { parts.append((piece.start, piece.end, voice, index, [])) }
+      parts[parts.count - 1].end = piece.end
       parts[parts.count - 1].words.append(piece.text)
     }
     return parts.map { part in
       let joined = part.words.joined(separator: " ")
         .replacingOccurrences(of: #"\s+([,.!?;:])"#, with: "$1", options: .regularExpression)
-      return (part.start, part.voice, joined)
+      let heard = inOrder(heard[part.first..<(part.first + part.words.count)])
+      return Part(start: part.start, end: part.end, voice: part.voice, heard: heard, text: joined)
     }
+  }
+
+  /// The voice the user gave this moment, if they corrected it.
+  private func corrected(at time: TimeInterval) -> Int? {
+    corrections.last { $0.start <= time && time <= $0.end }?.voice
   }
 
   /// The voice that spoke most during a stretch, or the nearest one just before or

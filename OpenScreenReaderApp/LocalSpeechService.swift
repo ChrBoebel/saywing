@@ -550,7 +550,8 @@ private final class SpeechWorkerSession {
         packetGeneration &+= 1
         transport.terminate()
         try? transport.input.close()
-        try? transport.output.close()
+        // Not the output: the reader may be reading it right now.
+        reader.close()
     }
 }
 
@@ -559,12 +560,26 @@ private final class SpeechWorkerSession {
 /// blocked cooperative thread would starve unrelated async work. Bounded blocks
 /// avoid an actor hop for every byte of base64 audio. Killing the owned worker
 /// unblocks a pending pipe read. Only one consumer calls nextLine at a time.
+/// The reader owns closing its handle: Foundation raises an Objective-C exception,
+/// which Swift cannot catch, when a closed FileHandle is asked for its descriptor.
 final class SpeechPacketReader: @unchecked Sendable {
     private let handle: FileHandle
     private let queue = DispatchQueue(label: "Saywing.speech.packet-reader", qos: .userInitiated)
     // Touched only on `queue`.
     private var pending = Data()
+    private var closed = false
     init(handle: FileHandle) { self.handle = handle }
+
+    /// Closes the handle after any pending read has returned; later reads return nil.
+    /// Kill the writer first, so a blocked read ends at the end of its output.
+    func close() {
+        queue.async { [self] in
+            guard !closed else { return }
+            closed = true
+            pending.removeAll()
+            try? handle.close()
+        }
+    }
 
     func nextLine() async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
@@ -575,6 +590,7 @@ final class SpeechPacketReader: @unchecked Sendable {
     private func readLine() throws -> Data? {
         dispatchPrecondition(condition: .onQueue(queue))
         while true {
+            guard !closed else { return nil }
             if let newline = pending.firstIndex(of: 10) {
                 guard pending.distance(from: pending.startIndex, to: newline) <= 140_000 else {
                     throw SpeechFailure.failed

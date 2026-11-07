@@ -211,6 +211,16 @@
         }
       }
     },
+    "Different Person": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere Person"
+          }
+        }
+      }
+    },
     "Local speech could not finish. Try again. No cloud or system voice was substituted.": {
       "localizations": {
         "de": {
@@ -237,6 +247,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die lokale Sprachausgabe hat zu lange gedauert. Versuche es erneut. Es wurde keine Cloud- oder Systemstimme verwendet."
+          }
+        }
+      }
+    },
+    "Name this voice, join it with another, or give this turn to a different person": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Stimme benennen, mit einer anderen zusammenführen oder diesen Beitrag einer anderen Person geben"
+          }
+        }
+      }
+    },
+    "New Person (%@)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Person (%@)"
           }
         }
       }
@@ -1817,16 +1847,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stimme benennen"
-          }
-        }
-      }
-    },
-    "Name this voice or join it with another": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Stimme benennen oder mit einer anderen zusammenführen"
           }
         }
       }
@@ -3911,6 +3931,16 @@
         }
       }
     },
+    "The others' voices are not told apart in this transcript.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Stimmen der anderen werden in dieser Mitschrift nicht unterschieden."
+          }
+        }
+      }
+    },
     "The PDF could not be created.": {
       "localizations": {
         "de": {
@@ -4871,6 +4901,16 @@
         }
       }
     },
+    "Voices are told apart automatically and may be mixed up. Click a name to correct it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stimmen werden automatisch unterschieden und können verwechselt werden. Klicke auf einen Namen, um ihn zu korrigieren."
+          }
+        }
+      }
+    },
     "Volume": {
       "localizations": {
         "de": {
@@ -5077,6 +5117,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "⌥⇧Leertaste ist für das Diktieren reserviert. Wähle einen anderen Vorlese-Kurzbefehl."
+          }
+        }
+      }
+    },
+    "The voice model could not be prepared reliably. Free some disk space and start again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Stimmmodell konnte nicht zuverlässig vorbereitet werden. Gib etwas Speicherplatz frei und starte erneut."
           }
         }
       }

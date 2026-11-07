@@ -1226,6 +1226,70 @@ struct MeetingVoiceControllerTests {
     }
 
     @Test
+    func aMovedTurnReachesTheExportCountsAsUnsavedAndEndsWithTheTranscript() async throws {
+        let diarizer = DiarizerFake()
+        let fixture = MeetingFixture(diarizer: diarizer)
+        await fixture.start()
+        othersSecond(fixture)
+        await fixture.hear(heard(.others, 0.1, 0.9, "Eins."))
+        await fixture.hear(heard(.me, 1.1, 1.9, "Ja."))
+        await fixture.controller.waitUntilSettled()
+        othersSecond(fixture)
+        await fixture.hear(heard(.others, 2.1, 2.9, "Zwei."))
+        fixture.controller.stop()
+        await fixture.controller.waitUntilSettled()
+        // The model heard one voice; the second turn of the others was someone else.
+        #expect(fixture.controller.export.turns.map(\.speaker) == ["Speaker 1", "Me", "Speaker 1"])
+        fixture.controller.copy()
+        let turn = try #require(fixture.controller.transcript.entries.last)
+        fixture.controller.reassignTurnToNewPerson(turn)
+        #expect(fixture.controller.hasUnsavedText)
+        #expect(fixture.controller.export.turns.map(\.speaker) == ["Speaker 1", "Me", "Speaker 2"])
+        fixture.controller.copy()
+        fixture.controller.reassignTurn(try #require(fixture.controller.transcript.entries.last), to: 0)
+        #expect(fixture.controller.hasUnsavedText)
+        #expect(fixture.controller.export.turns.map(\.speaker) == ["Speaker 1", "Me", "Speaker 1"])
+        // Corrections live only with this transcript.
+        fixture.confirmations.answer = true
+        await fixture.controller.startNew()
+        #expect(fixture.controller.transcript == MeetingTranscript())
+    }
+
+    @Test
+    func theFirstVoicesBringANoteThatTheyMayBeMixedUp() async {
+        let diarizer = DiarizerFake()
+        let fixture = MeetingFixture(diarizer: diarizer)
+        await fixture.start()
+        #expect(fixture.controller.voicesNote == nil)
+        await fixture.hear(heard(.me, 0.1, 0.9, "Hallo."))
+        #expect(fixture.controller.voicesNote == nil)
+        othersSecond(fixture)
+        await fixture.hear(heard(.others, 1.1, 1.9, "Hi."))
+        let note = "Voices are told apart automatically and may be mixed up. Click a name to correct it."
+        #expect(fixture.controller.voicesNote == note)
+        #expect(fixture.controller.footerNote == note)
+        // A warning is more urgent and takes the footer; the note stays for later.
+        fixture.controller.stop("The transcript stopped after 2 hours.")
+        await fixture.controller.waitUntilSettled()
+        #expect(fixture.controller.footerNote == "The transcript stopped after 2 hours.")
+        #expect(fixture.controller.voicesNote == note)
+        fixture.confirmations.answer = true
+        await fixture.controller.startNew()
+        #expect(fixture.controller.voicesNote == nil)
+    }
+
+    @Test
+    func withoutAVoiceModelTheWindowSaysOnceThatVoicesAreNotToldApart() async {
+        let fixture = MeetingFixture()
+        await fixture.start()
+        await fixture.hear(heard(.me, 0.1, 0.9, "Hallo."))
+        #expect(fixture.controller.voicesNote == nil)
+        await fixture.hear(heard(.others, 1.1, 1.9, "Hi."))
+        #expect(fixture.controller.voicesNote == "The others' voices are not told apart in this transcript.")
+        #expect(fixture.controller.notice == nil)
+    }
+
+    @Test
     func aFailingDiarizerLeavesTheTranscriptRunning() async {
         let diarizer = DiarizerFake()
         diarizer.failure = MeetingError("model gone")
@@ -1238,6 +1302,9 @@ struct MeetingVoiceControllerTests {
         #expect(fixture.controller.notice?.contains("model gone") == true)
         await fixture.hear(heard(.others, 0.1, 0.9, "Weiter."))
         #expect(fixture.controller.transcript.entries.map(\.label) == ["Others"])
+        // The failure notice already says it; no second note.
+        #expect(fixture.controller.voicesNote == nil)
+        #expect(fixture.controller.footerNote == fixture.controller.notice)
     }
 }
 
@@ -1343,6 +1410,11 @@ struct MeetingPreviewTests {
         try await capture("4-finished")
         fixture.controller.renameVoice(0, to: "Anna")
         try await capture("4b-named")
+        // The last turn was someone the model heard as Anna's second voice.
+        if let last = fixture.controller.transcript.entries.last {
+            fixture.controller.reassignTurnToNewPerson(last)
+        }
+        try await capture("4c-corrected")
         for format in MeetingExportFormat.allCases {
             try fixture.controller.export.data(as: format)
                 .write(to: directory.appendingPathComponent(format.fileName(base: "5-export")))
