@@ -143,4 +143,4 @@ decision.
 
 ## Update 2026-11-04: voice model
 
-The review of 2026-10-25 did not cover the LS-EEND voice model. The maintainer decided separately to ship it and accepts its training-data risks; see [ADR 0008](0008-meeting-speakers-and-pdf.md).
+The review of 2026-10-25 did not cover the LS-EEND voice model. The maintainer decided separately to ship it and accepts its training-data risks; see [ADR 0008](0008-meeting-speakers-and-pdf.md). Its replacement, Nemotron 3 Diarization (2026-11-07), was decided the same way on 2026-11-07: public builds carry it under OpenMDW-1.1 without external counsel, and the maintainer accepts its training-data risks (LDC corpora and David AI data). The decision is `voice_model_license_review` in both release approvals; see the same ADR.

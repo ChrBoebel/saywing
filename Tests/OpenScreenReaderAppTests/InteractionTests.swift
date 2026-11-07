@@ -170,6 +170,34 @@ struct SpeechBufferingTests {
         for task in pending { #expect(try await task.value == nil) }
     }
 
+    /// Stop closes the worker's output while the reader may still be reading. Foundation
+    /// raises an Objective-C exception (not a Swift error) when a closed FileHandle is
+    /// asked for its descriptor, which ended the app. Only the reader closes it now,
+    /// after any pending read, and it never touches the handle again.
+    @Test
+    func closingTheReaderDuringAPendingReadEndsItWithoutTouchingAClosedHandle() async throws {
+        let pipe = Pipe()
+        let reader = SpeechPacketReader(handle: pipe.fileHandleForReading)
+        let pending = Task.detached { try await reader.nextLine() }
+        try await Task.sleep(for: .milliseconds(50))
+        reader.close()
+        // The worker is killed in the app, which ends its output.
+        try pipe.fileHandleForWriting.close()
+        #expect(try await pending.value == nil)
+        for _ in 0..<3 { #expect(try await reader.nextLine() == nil) }
+    }
+
+    @Test
+    func readingAfterTheReaderClosedReturnsNothing() async throws {
+        let pipe = Pipe()
+        defer { try? pipe.fileHandleForWriting.close() }
+        let reader = SpeechPacketReader(handle: pipe.fileHandleForReading)
+        // Written before the close: writing to a pipe without a reader would raise SIGPIPE.
+        try pipe.fileHandleForWriting.write(contentsOf: Data("late\n".utf8))
+        reader.close()
+        #expect(try await reader.nextLine() == nil)
+    }
+
     @Test
     func shortPacketReturnsBeforeWriterCloses() async throws {
         let pipe = Pipe()

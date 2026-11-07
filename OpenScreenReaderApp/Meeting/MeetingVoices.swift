@@ -113,16 +113,163 @@ final class MeetingVoiceTracker: @unchecked Sendable {
   }
 }
 
-/// The voice model a build carries, placed by scripts/bundle-diarization-model.py.
-/// A build without it simply keeps the others as one speaker.
-enum MeetingVoiceModel {
-  static func bundled(in resources: URL? = Bundle.main.resourceURL) -> URL? {
-    guard let directory = resources?.appendingPathComponent("Diarization", isDirectory: true),
-      let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-    else { return nil }
-    return contents.sorted { $0.path < $1.path }.first {
-      $0.pathExtension == "mlmodelc"
-        && FileManager.default.fileExists(atPath: $0.appendingPathComponent("weights/weight.bin").path)
+/// Loads the voice model in the background as soon as a transcript may start, and
+/// stands in for it until it is ready, so the transcript never waits for it. Audio
+/// that arrives before then waits here, at most `bufferLimit` seconds of it (the
+/// oldest goes first; about 5.8 MB at 48 kHz for 30 s), and is fed to the model once
+/// it is loaded, so the others' first words get their voices too. Its times stay
+/// seconds of all audio given to it. Releasing it cancels a load still running and
+/// frees a model that is loaded or arrives late; nothing is kept for later.
+final class MeetingVoicePreload: MeetingVoiceDiarizing, @unchecked Sendable {
+  private final class Slot: @unchecked Sendable {
+    let lock = NSLock()
+    let done = DispatchSemaphore(value: 0)
+    var result: Swift.Result<any MeetingVoiceDiarizing, any Error>?
+  }
+
+  private let slot: Slot
+  private let task: Task<Void, Never>
+  private let bufferLimit: TimeInterval
+  private let finishWait: TimeInterval
+  // Used from the tracker's queue only.
+  private var model: (any MeetingVoiceDiarizing)?
+  private var waiting: [(samples: [Float], rate: Double)] = []
+  private var waitingSeconds: TimeInterval = 0
+  private var dropped: TimeInterval = 0
+  private var replayed: [MeetingVoiceSpan] = []
+
+  init(
+    bufferLimit: TimeInterval = 30, finishWait: TimeInterval = 30,
+    load: @escaping @Sendable () async throws -> any MeetingVoiceDiarizing
+  ) {
+    self.bufferLimit = bufferLimit
+    self.finishWait = finishWait
+    let slot = Slot()
+    self.slot = slot
+    task = Task.detached(priority: .utility) {
+      let result: Swift.Result<any MeetingVoiceDiarizing, any Error>
+      do { result = .success(try await load()) } catch { result = .failure(error) }
+      // Released meanwhile: a model that arrives now dies here.
+      guard !Task.isCancelled else { return }
+      slot.lock.withLock { slot.result = result }
+      slot.done.signal()
     }
+  }
+
+  deinit { task.cancel() }
+
+  /// Whether the load has ended, waiting up to `timeout` seconds. For tests and the end.
+  @discardableResult func waitUntilLoaded(timeout: TimeInterval) -> Bool {
+    if slot.lock.withLock({ slot.result != nil }) { return true }
+    guard slot.done.wait(timeout: .now() + timeout) == .success else { return false }
+    slot.done.signal()
+    return true
+  }
+
+  func append(_ samples: [Float], sampleRate: Double) throws -> [MeetingVoiceSpan] {
+    guard let model = try ready() else {
+      waiting.append((samples, sampleRate))
+      waitingSeconds += Double(samples.count) / sampleRate
+      while waitingSeconds > bufferLimit, !waiting.isEmpty {
+        let oldest = waiting.removeFirst()
+        let seconds = Double(oldest.samples.count) / oldest.rate
+        waitingSeconds -= seconds
+        dropped += seconds
+      }
+      return []
+    }
+    return shifted(try model.append(samples, sampleRate: sampleRate))
+  }
+
+  /// A transcript that ends while the model still loads waits for it, at most
+  /// `finishWait` seconds, so short transcripts get their voices too.
+  func finish() throws -> [MeetingVoiceSpan] {
+    if model == nil { waitUntilLoaded(timeout: finishWait) }
+    guard let model = try ready() else {
+      waiting = []
+      task.cancel()
+      return []
+    }
+    return shifted(try model.finish())
+  }
+
+  /// The model once it is loaded; the audio that waited for it goes in first, and
+  /// its voices come out with the next result. Throws the load error.
+  private func ready() throws -> (any MeetingVoiceDiarizing)? {
+    if let model { return model }
+    let result = slot.lock.withLock {
+      defer { slot.result = nil }
+      return slot.result
+    }
+    switch result {
+    case nil:
+      return nil
+    case let .failure(error):
+      waiting = []
+      throw error
+    case let .success(loaded):
+      model = loaded
+      let earlier = waiting
+      waiting = []
+      waitingSeconds = 0
+      for chunk in earlier { replayed += try loaded.append(chunk.samples, sampleRate: chunk.rate) }
+      return loaded
+    }
+  }
+
+  /// Voices of the audio that waited first, all on this object's own clock.
+  private func shifted(_ spans: [MeetingVoiceSpan]) -> [MeetingVoiceSpan] {
+    let all = replayed + spans
+    replayed = []
+    guard dropped > 0 else { return all }
+    return all.map { MeetingVoiceSpan(voice: $0.voice, start: $0.start + dropped, end: $0.end + dropped) }
+  }
+}
+
+/// The voice model a build carries, placed by scripts/bundle-diarization-model.py
+/// with the manifest it was verified against. A build without it simply keeps the
+/// others as one speaker.
+enum MeetingVoiceModel {
+  static let manifestName = "nemotron-3-manifest.json"
+
+  struct Bundled: Equatable, Sendable {
+    /// The app's Diarization folder: the model, its assets and the manifest.
+    let directory: URL
+    /// The runtime configuration the manifest names, as FluidAudio calls it.
+    let preset: String
+    /// The compiled model the preset loads.
+    let model: String
+  }
+
+  private struct Manifest: Decodable {
+    struct Preset: Decodable {
+      struct File: Decodable { let rfilename: String }
+      let subdirectory: String
+      let model: String
+      let files: [File]
+    }
+    let bundledPreset: String
+    let presets: [String: Preset]
+    enum CodingKeys: String, CodingKey {
+      case bundledPreset = "bundled_preset"
+      case presets
+    }
+  }
+
+  /// The model the manifest names, if every file it lists is in place.
+  static func bundled(in resources: URL? = Bundle.main.resourceURL) -> Bundled? {
+    guard let directory = resources?.appendingPathComponent("Diarization", isDirectory: true),
+      let data = try? Data(contentsOf: directory.appendingPathComponent(manifestName)),
+      let manifest = try? JSONDecoder().decode(Manifest.self, from: data),
+      let preset = manifest.presets[manifest.bundledPreset], !preset.files.isEmpty
+    else { return nil }
+    let prefix = preset.subdirectory + "/"
+    for file in preset.files {
+      let name = file.rfilename.hasPrefix(prefix) ? String(file.rfilename.dropFirst(prefix.count)) : file.rfilename
+      guard !name.split(separator: "/").contains(".."),
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
+      else { return nil }
+    }
+    return Bundled(directory: directory, preset: manifest.bundledPreset, model: preset.model)
   }
 }

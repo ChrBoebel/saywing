@@ -70,83 +70,120 @@ struct MeetingVoiceAudio {
   }
 }
 
-/// LS-EEND through FluidAudio, in this process, on the CPU. Loads only the given
-/// local model and never calls FluidAudio's download helpers. Everything it holds
-/// about the voices lives in memory and ends with this object.
-final class LSEENDMeetingDiarizer: MeetingVoiceDiarizing, @unchecked Sendable {
-  private let diarizer: LSEENDDiarizer
-  private let modelRate: Double
-  private var audio: MeetingVoiceAudio
-  private var stretches: MeetingVoiceStretches
-  private var heardSamples = 0
-
-  /// Seconds a voice still speaking grows before it is reported again.
-  private static let openStep: TimeInterval = 1
+/// Turns the model's speaker probabilities into stretches: FluidAudio's timeline with
+/// the app's rule (0.2 s of speech before a voice counts, gaps under 0.5 s do not end
+/// it) and `MeetingVoiceStretches`. Keeps neither frames nor segments, which would
+/// grow with the meeting.
+struct MeetingVoiceFrames {
   /// FluidAudio's documented examples: a blip is no speaker, a breath is no change.
   private static let shortestSpeech: TimeInterval = 0.2
   private static let shortestGap: TimeInterval = 0.5
+  /// Seconds a voice still speaking grows before it is reported again.
+  private static let openStep: TimeInterval = 1
 
-  init(modelURL: URL) throws {
-    // Saywing has no runtime path to these, and this makes every one of them throw.
-    ModelHub.offlineMode = true
-    // The CPU is FluidAudio's documented fastest choice for this model.
-    let model = try LSEENDModel(modelURL: modelURL, computeUnits: .cpuOnly)
-    let metadata = model.metadata
-    let frame = TimeInterval(metadata.frameDurationSeconds)
-    // Keeps neither frames nor segments: they would grow with the meeting.
-    diarizer = try LSEENDDiarizer(
-      model: model,
-      timelineConfig: DiarizerTimelineConfig(
-        minFramesOn: Int((Self.shortestSpeech / frame).rounded()),
-        minFramesOff: Int((Self.shortestGap / frame).rounded()),
+  private let timeline: DiarizerTimeline
+  private var stretches: MeetingVoiceStretches
+
+  init(voices: Int, frameDuration: TimeInterval) {
+    timeline = DiarizerTimeline(
+      config: DiarizerTimelineConfig(
+        numSpeakers: voices, frameDurationSeconds: Float(frameDuration),
+        minFramesOn: Int((Self.shortestSpeech / frameDuration).rounded()),
+        minFramesOff: Int((Self.shortestGap / frameDuration).rounded()),
         maxStoredFrames: 0, storeSegments: false))
-    modelRate = Double(metadata.sampleRate)
-    audio = try MeetingVoiceAudio(modelRate: modelRate)
-    stretches = MeetingVoiceStretches(frameDuration: frame, openStep: Int((Self.openStep / frame).rounded()))
+    stretches = MeetingVoiceStretches(frameDuration: frameDuration, openStep: Int((Self.openStep / frameDuration).rounded()))
   }
 
-  func append(_ samples: [Float], sampleRate: Double) throws -> [MeetingVoiceSpan] {
-    let converted = try audio.modelSamples(samples, sampleRate: sampleRate)
-    heardSamples += converted.count
-    return spans(from: try diarizer.process(samples: converted, sourceSampleRate: nil), final: false)
+  /// New frames, voices x frames flattened frame by frame, all final; `heard` is the
+  /// seconds of real audio fed so far. `final` closes every voice still speaking.
+  mutating func spans(_ probabilities: [Float], heard: TimeInterval, final: Bool) throws -> [MeetingVoiceSpan] {
+    let update = try timeline.addPredictions(finalizedPredictions: probabilities, tentativePredictions: [])
+    let closed = update.finalizedSegments.map(Self.segment)
+    let open = update.tentativeSegments.map(Self.segment)
+    return stretches.spans(closed: final ? closed + open : closed, open: final ? [] : open, heard: heard)
   }
 
-  func finish() throws -> [MeetingVoiceSpan] {
-    spans(from: try diarizer.finalizeSession(), final: true)
-  }
-
-  private func spans(from update: DiarizerTimelineUpdate?, final: Bool) -> [MeetingVoiceSpan] {
-    guard let update else { return [] }
-    let finalized = update.finalizedSegments.map(Self.segment)
-    let tentative = update.tentativeSegments.map(Self.segment)
-    return stretches.spans(
-      closed: final ? finalized + tentative : finalized, open: final ? [] : tentative,
-      heard: Double(heardSamples) / modelRate)
-  }
+  /// Frames the timeline still holds; stays zero.
+  var retainedFrames: Int { timeline.finalizedPredictions.count / max(timeline.speakerCapacity, 1) + timeline.numTentativeFrames }
 
   private static func segment(_ segment: DiarizerSegment) -> MeetingVoiceStretches.Segment {
     MeetingVoiceStretches.Segment(voice: segment.speakerIndex, startFrame: segment.startFrame, endFrame: segment.endFrame)
   }
 }
 
-/// Stands in for a model that is present but would not load: the transcript goes on
-/// and the first audio reports why the others stay one speaker.
-private final class UnavailableMeetingVoiceModel: MeetingVoiceDiarizing, @unchecked Sendable {
-  private let message: String
-  init(_ message: String) { self.message = message }
-  func append(_ samples: [Float], sampleRate: Double) throws -> [MeetingVoiceSpan] { throw MeetingError(message) }
-  func finish() throws -> [MeetingVoiceSpan] { throw MeetingError(message) }
+/// NVIDIA's Nemotron 3 Diarization through FluidAudio, in this process, on the Neural
+/// Engine where the Mac has one. Up to eight voices, numbered in the order they first
+/// speak, at 10 ms. Loads only the given local model and never calls FluidAudio's
+/// download helpers. Everything it holds about the voices (the speaker cache, the
+/// recent frames) has a fixed size, lives in memory and ends with this object.
+final class NemotronMeetingDiarizer: MeetingVoiceDiarizing, @unchecked Sendable {
+  private let diarizer: Nemotron3Diarizer
+  private let modelRate: Double
+  private var audio: MeetingVoiceAudio
+  private var frames: MeetingVoiceFrames
+  private var heardSamples = 0
+
+  init(models: Nemotron3Models, config: Nemotron3Config) throws {
+    diarizer = Nemotron3Diarizer(config: config, models: models)
+    diarizer.reset()
+    modelRate = Double(config.sampleRate)
+    audio = try MeetingVoiceAudio(modelRate: modelRate)
+    // 10 ms, without the Float's rounding error carried into meeting time.
+    let frame = (Double(config.outputFrameSeconds) * 1_000).rounded() / 1_000
+    frames = MeetingVoiceFrames(voices: config.numSpeakers, frameDuration: frame)
+  }
+
+  /// Loads the bundled model. Takes about 6 s the first time CoreML sees it on a
+  /// Mac (it compiles it for the Neural Engine and caches that), well under a second
+  /// afterwards.
+  static func load(_ model: MeetingVoiceModel.Bundled) async throws -> NemotronMeetingDiarizer {
+    // Saywing has no runtime path to these, and this makes every one of them throw.
+    ModelHub.offlineMode = true
+    let failed = MeetingError(
+      String(localized: "The model that tells voices apart could not be loaded. Reinstall Saywing to restore it."))
+    // A manifest this FluidAudio reads differently is no model rather than a wrong one.
+    guard let config = Nemotron3Config.preset(named: model.preset), config.modelFileName == model.model else { throw failed }
+    let models: Nemotron3Models
+    do {
+      models = try await Nemotron3Models.load(config: config, directory: model.directory, computeUnits: .all)
+    } catch {
+      throw failed
+    }
+    try Task.checkCancellation()
+    return try NemotronMeetingDiarizer(models: models, config: config)
+  }
+
+  func append(_ samples: [Float], sampleRate: Double) throws -> [MeetingVoiceSpan] {
+    let converted = try audio.modelSamples(samples, sampleRate: sampleRate)
+    guard !converted.isEmpty else { return [] }
+    heardSamples += converted.count
+    diarizer.appendAudio(converted)
+    let results = try diarizer.processBufferedAudio()
+    guard !results.isEmpty else { return [] }
+    return try frames.spans(results.flatMap(\.probabilities), heard: heard, final: false)
+  }
+
+  func finish() throws -> [MeetingVoiceSpan] {
+    try frames.spans(try diarizer.finishStream().flatMap(\.probabilities), heard: heard, final: true)
+  }
+
+  private var heard: TimeInterval { Double(heardSamples) / modelRate }
 }
 
 extension MeetingVoiceModel {
-  /// The diarizer for a transcript that is starting; nil when this build has no
-  /// model. Loads only from the app's own resources.
+  /// What a transcript about to start uses for the others' voices: the bundled model,
+  /// loading in the background from now on; nil when this build has no model. Loads
+  /// only from the app's own resources.
   static func makeDiarizer(in resources: URL? = Bundle.main.resourceURL) -> (any MeetingVoiceDiarizing)? {
-    guard let url = bundled(in: resources) else { return nil }
-    do {
-      return try LSEENDMeetingDiarizer(modelURL: url)
-    } catch {
-      return UnavailableMeetingVoiceModel(error.localizedDescription)
+    guard let model = bundled(in: resources) else { return nil }
+    return MeetingVoicePreload { try await NemotronMeetingDiarizer.load(model) }
+  }
+
+  /// The bundled model itself, loaded now. For the preload, tests and the evaluation.
+  static func loadDiarizer(in resources: URL? = Bundle.main.resourceURL) async throws -> any MeetingVoiceDiarizing {
+    guard let model = bundled(in: resources) else {
+      throw MeetingError("No voice model in \(resources?.path ?? "the app")")
     }
+    return try await NemotronMeetingDiarizer.load(model)
   }
 }
