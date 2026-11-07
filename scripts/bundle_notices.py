@@ -225,6 +225,25 @@ def notice_files(resources):
         yield path
 
 
+VOICE_MODEL_NOTICE = 'Diarization/LICENSE-Nemotron-3-Diarization.txt'
+
+
+def voice_model_section(resources):
+    """Only builds that carry the meeting voice model name it (ADR 0008)."""
+    if not (resources / VOICE_MODEL_NOTICE).is_file():
+        return ''
+    return ('<h2>Nemotron 3 Diarization</h2>'
+            '<p>The model that tells the other participants\' voices apart in meeting transcripts is Nemotron 3 '
+            'Diarization by NVIDIA, converted to CoreML by Fluid Inference. It is provided under the OpenMDW License '
+            'Agreement, version 1.1, which grants no rights in the datasets the model was trained on. The complete '
+            'license and the notices of origin are included below (<code>' + VOICE_MODEL_NOTICE + '</code>).</p>'
+            '<p>Das Modell, das in Meeting-Transkripten die Stimmen der anderen Teilnehmenden unterscheidet, ist '
+            'Nemotron 3 Diarization von NVIDIA, von Fluid Inference nach CoreML konvertiert. Es steht unter dem OpenMDW '
+            'License Agreement, Version 1.1, das keine Rechte an den Datensätzen einräumt, mit denen das Modell '
+            'trainiert wurde. Lizenz und Herkunftshinweise folgen vollständig unten (<code>' + VOICE_MODEL_NOTICE
+            + '</code>).</p>\n')
+
+
 def render_index(resources, sources=''):
     sections = []
     for path in notice_files(resources):
@@ -243,7 +262,7 @@ def render_index(resources, sources=''):
 <h2>Supertonic 3</h2>
 <p>Use and redistribution of the bundled Supertonic 3 model and voice are governed by the BigScience Open RAIL-M license, including paragraph 5 and Attachment A (use restrictions). These terms apply to the model and its derivatives, not to unrelated Saywing source code or other components. The complete unchanged license is included below.</p>
 <p>Für die Nutzung und Weitergabe des mitgelieferten Supertonic-3-Modells und seiner Stimme gilt die BigScience Open RAIL-M-Lizenz einschließlich Absatz 5 und Anhang A (Nutzungsbeschränkungen). Diese Bedingungen gelten für das Modell und seine Ableitungen, nicht für unabhängigen Saywing-Quellcode oder andere Komponenten. Der vollständige unveränderte Lizenztext folgt unten.</p>
-''' + sources + '''
+''' + voice_model_section(resources) + sources + '''
 <h2>Original license texts and notices</h2>
 <p>This document is available offline. The paths identify the original notices inside this app. An inventory does not certify that all distribution obligations have been fulfilled.</p>
 ''' + '\n'.join(sections) + '</html>\n'

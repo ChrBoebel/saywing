@@ -791,14 +791,15 @@ private struct MeetingFixture {
     var saved: [String] { savedBox.items }
     let savedBox = SavedBox()
 
-    init(systemAvailable: Bool = true, diarizer: DiarizerFake? = nil) {
+    init(systemAvailable: Bool = true, diarizer: DiarizerFake? = nil,
+         voices: (@MainActor () -> (any MeetingVoiceDiarizing)?)? = nil) {
         let provider = provider, microphone = microphone, system = system, clock = clock, savedBox = savedBox
         let confirmations = confirmations, access = access
         controller = MeetingController(
             provider: provider,
             makeMicrophone: { microphone },
             makeSystemAudio: { systemAvailable ? system : nil },
-            makeVoiceDiarizer: { diarizer },
+            makeVoiceDiarizer: voices ?? { diarizer },
             language: { .german },
             interfaceSounds: sounds,
             hostClock: { clock.ticks },
@@ -820,6 +821,12 @@ private struct MeetingFixture {
         provider.recognizer.onResult?(recognition)
         await controller.waitUntilSettled()
     }
+}
+
+@MainActor
+private final class PreparedVoices {
+    var made = 0
+    weak var model: DiarizerFake?
 }
 
 @MainActor
@@ -1287,6 +1294,67 @@ struct MeetingVoiceControllerTests {
         await fixture.hear(heard(.others, 1.1, 1.9, "Hi."))
         #expect(fixture.controller.voicesNote == "The others' voices are not told apart in this transcript.")
         #expect(fixture.controller.notice == nil)
+    }
+
+    /// Loading the model takes seconds, so it starts with the consent step, once,
+    /// and the transcript uses what was prepared.
+    @Test
+    func theVoiceModelLoadsWhileTheConsentStepIsShown() async {
+        let prepared = PreparedVoices()
+        let diarizer = DiarizerFake()
+        let fixture = MeetingFixture(voices: { prepared.made += 1; return diarizer })
+        await fixture.controller.open()
+        #expect(fixture.controller.phase == .consent)
+        #expect(prepared.made == 1)
+        fixture.controller.confirmConsent()
+        await fixture.controller.waitUntilSettled()
+        #expect(prepared.made == 1)
+        #expect(fixture.controller.tellsVoicesApart)
+        othersSecond(fixture)
+        await fixture.controller.waitUntilSettled()
+        #expect(diarizer.fed == 1)
+    }
+
+    /// A transcript started before the model is ready runs at once with "Others";
+    /// once the model is there, the words from before get their voices too.
+    @Test
+    func wordsFromBeforeTheModelWasReadyGetTheirVoices() async throws {
+        let gate = LoadGate()
+        let preload = MeetingVoicePreload { await gate.wait(); return DiarizerFake() }
+        let fixture = MeetingFixture(voices: { preload })
+        await fixture.start()
+        #expect(fixture.controller.phase == .live)
+        othersSecond(fixture)
+        await fixture.hear(heard(.others, 0.1, 0.9, "Hallo."))
+        #expect(fixture.controller.transcript.entries.map(\.label) == ["Others"])
+        gate.open()
+        #expect(preload.waitUntilLoaded(timeout: 5))
+        fixture.clock.seconds += 1
+        othersSecond(fixture)
+        await fixture.controller.waitUntilSettled()
+        #expect(fixture.controller.transcript.entries.map(\.label) == ["Speaker 1"])
+    }
+
+    /// The model is freed when the window closes before a transcript starts, and when
+    /// the transcript is discarded; opening the window again prepares it again.
+    @Test
+    func closingTheWindowFreesThePreparedModel() async {
+        let prepared = PreparedVoices()
+        let fixture = MeetingFixture(voices: {
+            prepared.made += 1
+            let model = DiarizerFake()
+            prepared.model = model
+            return model
+        })
+        await fixture.controller.open()
+        #expect(prepared.model != nil)
+        fixture.controller.windowClosed()
+        #expect(prepared.model == nil)
+        await fixture.controller.open()
+        #expect(prepared.made == 2)
+        #expect(prepared.model != nil)
+        fixture.controller.discard()
+        #expect(prepared.model == nil)
     }
 
     @Test

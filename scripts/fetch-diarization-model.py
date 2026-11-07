@@ -1,36 +1,34 @@
 #!/usr/bin/env python3
-"""Download the pinned LS-EEND diarisation model for a Saywing build and verify every file.
+"""Download the pinned Nemotron 3 voice model for a Saywing build and verify every file.
 
 Build-time only: the app itself never downloads it. Files come from the revision in
-Runtime/Diarization/ls-eend-manifest.json and must match its sizes and SHA-256 digests;
-anything else is deleted and the script fails."""
+Runtime/Diarization/nemotron-3-manifest.json and must match its sizes and SHA-256 digests;
+anything else is deleted and the script fails. The target folder ends up laid out like
+the app's Diarization folder, so the opt-in tests and the evaluation load it as it is."""
 import argparse
-import hashlib
-import json
 from pathlib import Path
+import shutil
 import sys
 import urllib.request
 
-repo = Path(__file__).resolve().parents[1]
-manifest = json.loads((repo/'Runtime/Diarization/ls-eend-manifest.json').read_text())
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import diarization_model as model  # noqa: E402
+
+manifest = model.load_manifest()
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('target', type=Path, help='Directory that receives the variant folder (for example .build/models/ls-eend)')
-parser.add_argument('--variant', default=manifest['bundled_variant'], choices=sorted(manifest['variants']))
+parser.add_argument('target', type=Path, help='Directory that receives the model (for example .build/models/nemotron-3)')
+parser.add_argument('--preset', default=manifest['bundled_preset'], choices=sorted(manifest['presets']),
+                    help='Another measured preset, for evaluation only; builds bundle the manifest\'s')
 args = parser.parse_args()
 
-def sha256(path):
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-            digest.update(chunk)
-    return digest.hexdigest()
-
 target = args.target.resolve()
-for item in manifest['variants'][args.variant]['files']:
-    path = (target/item['rfilename']).resolve()
+target.mkdir(parents=True, exist_ok=True)
+preset = manifest['presets'][args.preset]
+for item in preset['files']:
+    path = (target / model.placed(preset, item)).resolve()
     if not path.is_relative_to(target):
         raise SystemExit('Manifest path escapes target')
-    if path.is_file() and path.stat().st_size == item['size'] and sha256(path) == item['verified_sha256']:
+    if model.matches(path, item):
         continue
     path.parent.mkdir(parents=True, exist_ok=True)
     url = f"https://huggingface.co/{manifest['repo']}/resolve/{manifest['revision']}/{item['rfilename']}"
@@ -38,7 +36,12 @@ for item in manifest['variants'][args.variant]['files']:
     with urllib.request.urlopen(url) as response, path.open('wb') as out:
         while chunk := response.read(1024 * 1024):
             out.write(chunk)
-    if path.stat().st_size != item['size'] or sha256(path) != item['verified_sha256']:
+    if not model.matches(path, item):
         path.unlink()
         raise SystemExit('Verification failed: ' + item['rfilename'])
-print(target/manifest['variants'][args.variant]['directory'])
+# The folder's manifest names the preset it holds; bundle-diarization-model.py ships the
+# repository's manifest instead.
+(target / model.MANIFEST_NAME).write_text(model.MANIFEST.read_text().replace(
+    f'"bundled_preset": "{manifest["bundled_preset"]}"', f'"bundled_preset": "{args.preset}"', 1))
+shutil.copy2(model.NOTICE, target / model.NOTICE_NAME)
+print(target)
