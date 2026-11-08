@@ -105,6 +105,10 @@ based on Apple's `bsd.sb`:
   (`stat`) stays readable everywhere, contents of the home folder do not.
 - No network, no file writes except `/dev/null`, no `fork`, no `exec` other than the
   interpreter itself, no Apple Events.
+- The worker may hand Apple's Metal compiler service write access to exactly two
+  of its own shader caches (`com.apple.metalfe` and `com.apple.gpuarchiver` in the
+  per-user cache folder). macOS 27 needs this to compile MLX kernels; the worker
+  itself still writes nothing.
 - Mach services only from the base list of `system.sb` (including logging,
   read-only `cfprefsd`, `trustd`) plus `com.apple.MTLCompilerService` and the GPU
   clients `AGXDeviceUserClient`/`IOSurfaceRootUserClient` for MLX. Launch Services,
