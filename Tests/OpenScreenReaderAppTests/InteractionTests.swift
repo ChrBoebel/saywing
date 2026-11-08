@@ -4282,6 +4282,22 @@ struct WorkerSandboxTests {
         #expect(file == WorkerSandbox.profile, "Scripts and integration checks must test the profile the app uses.")
     }
 
+    /// macOS 27's Metal compiler needs a read-write extension for its shader caches, or every
+    /// MLX dictation aborts. The grant stays limited to those two caches; the worker writes nothing.
+    @Test func readWriteExtensionsCoverOnlyTheMetalShaderCaches() {
+        let profile = WorkerSandbox.profile
+        let rule = """
+            (allow file-issue-extension (require-all (extension-class "com.apple.app-sandbox.read-write")
+              (regex #"^/private/var/folders/[^/]+/[^/]+/C/com\\.apple\\.(metalfe|gpuarchiver)(/|$)")))
+            """
+        #expect(profile.contains(rule))
+        #expect(profile.components(separatedBy: "read-write").count == 2, "No other read-write extension.")
+        #expect(profile.contains("(deny file-write*)"))
+        let writes = profile.split(separator: "\n").filter { $0.contains("(allow file-write") }
+        #expect(writes.map { $0.trimmingCharacters(in: .whitespaces) } == [#"(allow file-write-data (literal "/dev/null"))"#],
+                "The worker itself never writes, only /dev/null.")
+    }
+
     @Test func argumentsUseCanonicalPathsAndFailClosedWhenMissing() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sandbox-args-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
